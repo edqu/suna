@@ -11,6 +11,7 @@ class AgentCreateRequest(BaseModel):
     """Request model for creating a new agent."""
     name: str
     system_prompt: Optional[str] = None
+    model: Optional[str] = None  # Optional model ID, defaults to user's tier default
     configured_mcps: Optional[List[Dict[str, Any]]] = []
     custom_mcps: Optional[List[Dict[str, Any]]] = []
     agentpress_tools: Optional[Dict[str, Any]] = {}

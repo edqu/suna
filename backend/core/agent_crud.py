@@ -377,6 +377,40 @@ async def update_agent(
         logger.error(f"Error updating agent {agent_id} for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
 
+@router.patch("/agents/{agent_id}/model", response_model=AgentResponse, summary="Update Agent Model", operation_id="update_agent_model")
+async def update_agent_model(
+    agent_id: str,
+    model_id: str,
+    user_id: str = Depends(verify_and_get_user_id_from_jwt)
+):
+    """
+    Update only the model for a specific agent.
+    
+    This is a convenience endpoint that updates just the model field,
+    creating a new version if necessary.
+    """
+    logger.debug(f"Updating model for agent {agent_id} to {model_id} for user: {user_id}")
+    
+    # Validate the model exists and is enabled
+    is_valid, error_msg = model_manager.validate_model(model_id)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid model: {error_msg}")
+    
+    # Validate user can access this model (tier check)
+    client = await utils.db.client
+    from core.utils.model_selector import model_selector
+    
+    try:
+        can_use, error_msg = await model_selector.validate_model_for_user(client, user_id, model_id)
+        if not can_use:
+            raise HTTPException(status_code=403, detail=error_msg)
+    except Exception as e:
+        logger.warning(f"Model validation failed: {e}, allowing anyway for local mode")
+    
+    # Use the existing update_agent function with only the model field
+    agent_update = AgentUpdateRequest(model=model_id)
+    return await update_agent(agent_id, agent_update, user_id)
+
 @router.delete("/agents/{agent_id}", summary="Delete Agent", operation_id="delete_agent")
 async def delete_agent(agent_id: str, user_id: str = Depends(verify_and_get_user_id_from_jwt)):
     logger.debug(f"Deleting agent: {agent_id}")
@@ -589,13 +623,24 @@ async def create_agent(
             agentpress_tools = agent_data.agentpress_tools if agent_data.agentpress_tools else _get_default_agentpress_tools()
             agentpress_tools = ensure_core_tools_enabled(agentpress_tools)
             
-            default_model = await model_manager.get_default_model_for_user(client, user_id)
+            # Use provided model or default for user's tier
+            if agent_data.model:
+                # Validate the provided model
+                from core.utils.model_selector import model_selector
+                is_valid, error_msg = await model_selector.validate_model_for_user(client, user_id, agent_data.model)
+                if not is_valid:
+                    raise HTTPException(status_code=400, detail=f"Invalid model selection: {error_msg}")
+                selected_model = agent_data.model
+                logger.debug(f"Using user-provided model: {selected_model}")
+            else:
+                selected_model = await model_manager.get_default_model_for_user(client, user_id)
+                logger.debug(f"Using default model for user tier: {selected_model}")
             
             version = await version_service.create_version(
                 agent_id=agent['agent_id'],
                 user_id=user_id,
                 system_prompt=system_prompt,
-                model=default_model,
+                model=selected_model,
                 configured_mcps=agent_data.configured_mcps or [],
                 custom_mcps=agent_data.custom_mcps or [],
                 agentpress_tools=agentpress_tools,

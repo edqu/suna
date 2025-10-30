@@ -308,6 +308,9 @@ class Configuration:
     OR_SITE_URL: Optional[str] = "https://kortix.ai"
     OR_APP_NAME: Optional[str] = "Kortix AI"
     
+    # Ollama configuration (local LLM deployment)
+    OLLAMA_API_BASE: Optional[str] = "http://localhost:11434"
+    
     # Frontend URL configuration
     FRONTEND_URL_ENV: Optional[str] = None
     

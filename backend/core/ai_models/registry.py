@@ -294,22 +294,117 @@ class ModelRegistry:
         #     enabled=False  # Currently disabled
         # ))
         
+        # Ollama Models (local deployment)
+        self.register(Model(
+            id="ollama/llama3:instruct",
+            name="Llama 3 Instruct",
+            provider=ModelProvider.OLLAMA,
+            aliases=["llama3:instruct", "ollama_llama3_instruct"],
+            context_window=8_192,
+            capabilities=[
+                ModelCapability.CHAT,
+                ModelCapability.FUNCTION_CALLING,
+            ],
+            pricing=ModelPricing(
+                input_cost_per_million_tokens=0.00,
+                output_cost_per_million_tokens=0.00
+            ),
+            tier_availability=["free", "paid"],
+            priority=81,
+            recommended=True,
+            enabled=is_local,
+            config=ModelConfig(
+                api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+            )
+        ))
+        
+        self.register(Model(
+            id="ollama/llama3.3",
+            name="Llama 3.3 70B",
+            provider=ModelProvider.OLLAMA,
+            aliases=["llama3.3", "ollama_llama3.3"],
+            context_window=128_000,
+            capabilities=[
+                ModelCapability.CHAT,
+                ModelCapability.FUNCTION_CALLING,
+            ],
+            pricing=ModelPricing(
+                input_cost_per_million_tokens=0.00,
+                output_cost_per_million_tokens=0.00
+            ),
+            tier_availability=["free", "paid"],
+            priority=80,
+            enabled=is_local,
+            config=ModelConfig(
+                api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+            )
+        ))
+        
+        self.register(Model(
+            id="ollama/qwen2.5-coder",
+            name="Qwen 2.5 Coder",
+            provider=ModelProvider.OLLAMA,
+            aliases=["qwen2.5-coder", "ollama_qwen2.5-coder"],
+            context_window=32_768,
+            capabilities=[
+                ModelCapability.CHAT,
+                ModelCapability.FUNCTION_CALLING,
+            ],
+            pricing=ModelPricing(
+                input_cost_per_million_tokens=0.00,
+                output_cost_per_million_tokens=0.00
+            ),
+            tier_availability=["free", "paid"],
+            priority=79,
+            enabled=is_local,
+            config=ModelConfig(
+                api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+            )
+        ))
+        
+        self.register(Model(
+            id="ollama/deepseek-r1:70b",
+            name="DeepSeek R1 70B",
+            provider=ModelProvider.OLLAMA,
+            aliases=["deepseek-r1:70b", "ollama_deepseek-r1"],
+            context_window=64_000,
+            capabilities=[
+                ModelCapability.CHAT,
+                ModelCapability.FUNCTION_CALLING,
+            ],
+            pricing=ModelPricing(
+                input_cost_per_million_tokens=0.00,
+                output_cost_per_million_tokens=0.00
+            ),
+            tier_availability=["free", "paid"],
+            priority=78,
+            enabled=is_local,
+            config=ModelConfig(
+                api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+            )
+        ))
+        
     
     def register(self, model: Model) -> None:
         self._models[model.id] = model
+        # Register both exact ID and lowercase version for case-insensitive lookup
+        self._aliases[model.id.lower()] = model.id
         for alias in model.aliases:
-            self._aliases[alias] = model.id
+            self._aliases[alias.lower()] = model.id
     
     def get(self, model_id: str) -> Optional[Model]:
         # Handle None or empty model_id
         if not model_id:
             return None
-            
+        
+        # Try exact match first
         if model_id in self._models:
             return self._models[model_id]
         
-        if model_id in self._aliases:
-            actual_id = self._aliases[model_id]
+        # Try case-insensitive lookup
+        model_id_lower = model_id.lower()
+        if model_id_lower in self._aliases:
+            actual_id = self._aliases[model_id_lower]
             return self._models.get(actual_id)
         
         return None

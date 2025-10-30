@@ -229,6 +229,24 @@ export function useThreadData(threadId: string, projectId: string): UseThreadDat
     }
   }, [messagesQuery.data, messagesQuery.status, isLoading, messages.length, threadId]);
 
+  // Poll for sandbox VNC preview when agent is running and sandbox info is missing
+  useEffect(() => {
+    const missingSandbox =
+      !project?.sandbox?.id || 
+      !project?.sandbox?.pass || 
+      !project?.sandbox?.vnc_preview;
+    
+    // Only poll while agent is running and sandbox info is incomplete
+    if (agentStatus === 'running' && missingSandbox) {
+      console.log('🔄 Polling for sandbox VNC preview...');
+      const intervalId = setInterval(() => {
+        projectQuery.refetch();
+      }, 3000); // Poll every 3 seconds
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [agentStatus, project?.sandbox?.id, project?.sandbox?.pass, project?.sandbox?.vnc_preview, projectQuery]);
+
   return {
     messages,
     setMessages,

@@ -53,7 +53,7 @@ import { useUpdateAgent, useAgents } from '@/hooks/react-query/agents/use-agents
 import { useUpdateAgentMCPs } from '@/hooks/react-query/agents/use-update-agent-mcps';
 import { useExportAgent } from '@/hooks/react-query/agents/use-agent-export-import';
 import { ExpandableMarkdownEditor } from '@/components/ui/expandable-markdown-editor';
-import { AgentModelSelector } from './config/model-selector';
+import { SimpleModelSelector } from './config/simple-model-selector';
 import { GranularToolConfiguration } from './tools/granular-tool-configuration';
 import { AgentMCPConfiguration } from './agent-mcp-configuration';
 import { AgentKnowledgeBaseManager } from './knowledge-base/agent-kb-tree';
@@ -97,6 +97,12 @@ export function AgentConfigurationDialog({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
   const [isIconEditorOpen, setIsIconEditorOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   // Debug state changes
   useEffect(() => {
@@ -364,6 +370,11 @@ export function AgentConfigurationDialog({
     }
     onOpenChange(open);
   };
+
+  // Prevent hydration mismatch - don't render until mounted
+  if (!mounted) {
+    return null;
+  }
 
   if (error) {
     return null;
@@ -634,23 +645,33 @@ export function AgentConfigurationDialog({
                 </TabsContent> */}
 
                 <TabsContent value="instructions" className="p-6 mt-0 flex flex-col h-full">
-                  <div className="flex flex-col flex-1 min-h-0">
+                  <div className="flex flex-col flex-1 min-h-0 gap-4">
                     {isSunaAgent && (
-                      <Alert className="mb-4 bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900">
+                      <Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900 flex-shrink-0">
                         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
                           You can't edit the main Kortix Super Worker, but you can create a new AI Worker that you can modify as you wish.
                         </AlertDescription>
                       </Alert>
                     )}
-                    <Label className="text-base font-semibold mb-3 block flex-shrink-0">System Prompt</Label>
-                    <ExpandableMarkdownEditor
-                      value={formData.system_prompt}
-                      onSave={handleSystemPromptChange}
-                      disabled={!isSystemPromptEditable}
-                      placeholder="Define how your agent should behave..."
-                      className="flex-1 h-[90%]"
-                    />
+                    <div className="flex-shrink-0">
+                      <Label className="text-base font-semibold mb-3 block">Model</Label>
+                      <SimpleModelSelector
+                        value={formData.model}
+                        onChange={handleModelChange}
+                        disabled={isViewingOldVersion}
+                      />
+                    </div>
+                    <div className="flex-1 min-h-0 flex flex-col">
+                      <Label className="text-base font-semibold mb-3 block flex-shrink-0">System Prompt</Label>
+                      <ExpandableMarkdownEditor
+                        value={formData.system_prompt}
+                        onSave={handleSystemPromptChange}
+                        disabled={!isSystemPromptEditable}
+                        placeholder="Define how your agent should behave..."
+                        className="flex-1"
+                      />
+                    </div>
                   </div>
                 </TabsContent>
 

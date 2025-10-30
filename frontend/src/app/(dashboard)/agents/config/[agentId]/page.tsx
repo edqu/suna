@@ -3,8 +3,7 @@
 import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAgent } from '@/hooks/react-query/agents/use-agents';
-import { ChevronLeft, Brain, BookOpen, Zap, Wrench, Server, Pencil, MessageCircle } from 'lucide-react';
-import { KortixLoader } from '@/components/ui/kortix-loader';
+import { ChevronLeft, Brain, BookOpen, Zap, Wrench, Server, Loader2, Pencil, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
@@ -35,7 +34,7 @@ export default function AgentConfigPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <KortixLoader size="large" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }

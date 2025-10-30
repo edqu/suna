@@ -2038,7 +2038,8 @@ export const getAvailableModels = async (): Promise<AvailableModelsResponse> => 
       throw new NoAccessTokenAvailableError();
     }
 
-    const response = await fetch(`${API_URL}/billing/available-models`, {
+    // Use new /models endpoint
+    const response = await fetch(`${API_URL}/models`, {
       headers: {
         Authorization: `Bearer ${session.access_token}`,
       },
@@ -2057,7 +2058,15 @@ export const getAvailableModels = async (): Promise<AvailableModelsResponse> => 
       );
     }
 
-    return response.json();
+    const data = await response.json();
+    
+    // Transform response to match expected format
+    return data;
+    /* {
+      models: data.models || [],
+      subscription_tier: data.user_tier || 'free',
+      total_models: data.models?.length || 0
+    };*/
   } catch (error) {
     if (error instanceof NoAccessTokenAvailableError) {
       throw error;
@@ -2065,6 +2074,107 @@ export const getAvailableModels = async (): Promise<AvailableModelsResponse> => 
 
     console.error('Failed to get available models:', error);
     handleApiError(error, { operation: 'load available models', resource: 'AI models' });
+    throw error;
+  }
+};
+
+// Get models grouped by provider
+export const getModelsByProvider = async (): Promise<{
+  providers: Record<string, Model[]>;
+  default_model: string;
+  user_tier: string;
+}> => {
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new NoAccessTokenAvailableError();
+    }
+
+    const response = await fetch(`${API_URL}/models/by-provider`, {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models by provider: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Failed to get models by provider:', error);
+    handleApiError(error, { operation: 'load models by provider', resource: 'AI models' });
+    throw error;
+  }
+};
+
+// Validate model availability
+export const validateModel = async (modelId: string): Promise<{
+  is_valid: boolean;
+  error_message?: string;
+  model_info?: Model;
+}> => {
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new NoAccessTokenAvailableError();
+    }
+
+    const response = await fetch(`${API_URL}/models/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ model_id: modelId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to validate model: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Failed to validate model:', error);
+    handleApiError(error, { operation: 'validate model', resource: 'AI model' });
+    throw error;
+  }
+};
+
+// Get model info
+export const getModelInfo = async (modelId: string): Promise<Model> => {
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new NoAccessTokenAvailableError();
+    }
+
+    const response = await fetch(`${API_URL}/models/${encodeURIComponent(modelId)}`, {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch model info: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Failed to get model info:', error);
+    handleApiError(error, { operation: 'load model info', resource: 'AI model' });
     throw error;
   }
 };

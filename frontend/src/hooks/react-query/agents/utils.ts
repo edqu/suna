@@ -308,6 +308,36 @@ export const updateAgent = async (agentId: string, agentData: AgentUpdateRequest
   }
 };
 
+export const updateAgentModel = async (agentId: string, modelId: string): Promise<Agent> => {
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error('You must be logged in to update agent model');
+    }
+
+    const response = await fetch(`${API_URL}/agents/${agentId}/model?model_id=${encodeURIComponent(modelId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const agent = await response.json();
+    return agent;
+  } catch (err) {
+    console.error('Error updating agent model:', err);
+    throw err;
+  }
+};
+
 export const deleteAgent = async (agentId: string): Promise<void> => {
   try {
     const supabase = createClient();

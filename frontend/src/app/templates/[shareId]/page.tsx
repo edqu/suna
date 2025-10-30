@@ -19,6 +19,7 @@ import {
   Globe,
   Terminal,
   GitBranch,
+  Loader2,
   ArrowLeft,
   Moon,
   Sun,
@@ -26,7 +27,6 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { KortixLoader } from '@/components/ui/kortix-loader';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -326,7 +326,7 @@ export default function TemplateSharePage() {
     return (
       <div className="min-h-screen">
         <div className="flex items-center justify-center h-screen">
-          <KortixLoader size="large" />
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       </div>
     );

@@ -18,8 +18,7 @@ import { handleFiles, FileUploadHandler } from './file-upload-handler';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ArrowUp, X, Image as ImageIcon, Presentation, BarChart3, FileText, Search, Users, Code2, Sparkles, Brain as BrainIcon, MessageSquare, CornerDownLeft, Plug } from 'lucide-react';
-import { KortixLoader } from '@/components/ui/kortix-loader';
+import { Loader2, ArrowUp, X, Image as ImageIcon, Presentation, BarChart3, FileText, Search, Users, Code2, Sparkles, Brain as BrainIcon, MessageSquare, CornerDownLeft, Plug } from 'lucide-react';
 import { VoiceRecorder } from './voice-recorder';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { UnifiedConfigMenu } from './unified-config-menu';
@@ -195,7 +194,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [registryDialogOpen, setRegistryDialogOpen] = useState(false);
     const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
@@ -391,13 +389,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
       }
     }, [autoFocus]);
 
-    // Reset submitting state when agent starts running
-    useEffect(() => {
-      if (isAgentRunning && isSubmitting) {
-        setIsSubmitting(false);
-      }
-    }, [isAgentRunning, isSubmitting]);
-
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
       if (
@@ -412,9 +403,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         onStopAgent();
         return;
       }
-
-      // Set optimistic submitting state to prevent flickering
-      setIsSubmitting(true);
 
       let message = value;
 
@@ -593,7 +581,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
       <div className="flex flex-col gap-1 px-2">
         <Textarea
           ref={textareaRef}
-          value={isSubmitting ? '' : value}
+          value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
@@ -606,7 +594,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
           rows={1}
         />
       </div>
-    ), [value, handleChange, handleKeyDown, handlePaste, animatedPlaceholder, isDraggingOver, loading, disabled, isAgentRunning, isSubmitting]);
+    ), [value, handleChange, handleKeyDown, handlePaste, animatedPlaceholder, isDraggingOver, loading, disabled, isAgentRunning]);
 
     const renderControls = useMemo(() => (
       <div className="flex items-center justify-between mt-0 mb-1 px-2">
@@ -806,8 +794,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
           />}
 
           <div className="relative">
-            {/* Context Usage Indicator - disabled by default */}
-            {/* {threadId && <ContextUsageIndicator threadId={threadId} modelName={selectedModel} />} */}
+            {threadId && <ContextUsageIndicator threadId={threadId} modelName={selectedModel} />}
 
             <TooltipProvider>
               <Tooltip>
@@ -817,20 +804,23 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
                     onClick={isAgentRunning && onStopAgent ? onStopAgent : handleSubmit}
                     size="sm"
                     className={cn(
-                      "w-8 h-8 flex-shrink-0 self-end rounded-xl relative z-10",
-                      // Override disabled opacity when loading/uploading/submitting to keep loader fully visible
-                      (loading || isUploading || isSubmitting) && "opacity-100 [&[disabled]]:opacity-100"
+                      'w-8 h-8 flex-shrink-0 self-end rounded-xl relative z-10',
+                      (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                        loading ||
+                        (disabled && !isAgentRunning) ||
+                        isUploading
+                        ? 'opacity-50'
+                        : '',
                     )}
                     disabled={
                       (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
                       loading ||
                       (disabled && !isAgentRunning) ||
-                      isUploading ||
-                      isSubmitting
+                      isUploading
                     }
                   >
-                    {((loading || isUploading || isSubmitting) && !isAgentRunning) ? (
-                      <KortixLoader size="small" customSize={20} forceTheme="dark" />
+                    {loading || isUploading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
                     ) : isAgentRunning ? (
                       <div className="min-h-[14px] min-w-[14px] w-[14px] h-[14px] rounded-sm bg-current" />
                     ) : (
@@ -848,7 +838,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
           </div>
         </div>
       </div>
-    ), [hideAttachments, loading, disabled, isAgentRunning, isUploading, isSubmitting, sandboxId, projectId, messages, isLoggedIn, renderConfigDropdown, billingModalOpen, setBillingModalOpen, handleTranscription, onStopAgent, handleSubmit, value, uploadedFiles, selectedMode, onModeDeselect, handleModeDeselect, isModeDismissing, isSunaAgent, sunaAgentModes, pendingFiles, threadId, selectedModel, googleDriveIcon, slackIcon, notionIcon]);
+    ), [hideAttachments, loading, disabled, isAgentRunning, isUploading, sandboxId, projectId, messages, isLoggedIn, renderConfigDropdown, billingModalOpen, setBillingModalOpen, handleTranscription, onStopAgent, handleSubmit, value, uploadedFiles, selectedMode, onModeDeselect, handleModeDeselect, isModeDismissing, isSunaAgent, sunaAgentModes, pendingFiles, threadId, selectedModel, googleDriveIcon, slackIcon, notionIcon]);
 
     return (
       <div className="mx-auto w-full max-w-4xl relative">
@@ -915,7 +905,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
                     {isUploading && pendingFiles.length > 0 && (
                       <div className="absolute inset-0 bg-background/50 backdrop-blur-sm rounded-xl flex items-center justify-center">
                         <div className="flex items-center gap-2 bg-background/90 px-3 py-2 rounded-lg border border-border">
-                          <KortixLoader size="small" customSize={16} forceTheme="dark" />
+                          <Loader2 className="h-4 w-4 animate-spin" />
                           <span className="text-sm">Uploading {pendingFiles.length} file{pendingFiles.length !== 1 ? 's' : ''}...</span>
                         </div>
                       </div>
