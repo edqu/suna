@@ -2353,3 +2353,62 @@ export const transcribeAudio = async (audioFile: File): Promise<TranscriptionRes
     throw error;
   }
 };
+
+// Web Search Preference API Types
+export interface UpdateWebSearchPreferenceRequest {
+  preference: 'local' | 'paid';
+}
+
+export interface UpdateWebSearchPreferenceResponse {
+  success: boolean;
+  preference: 'local' | 'paid';
+  message: string;
+}
+
+// Web Search Preference API Functions
+export const updateWebSearchPreference = async (
+  agentId: string,
+  preference: 'local' | 'paid'
+): Promise<UpdateWebSearchPreferenceResponse> => {
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new NoAccessTokenAvailableError();
+    }
+
+    const response = await fetch(`${API_URL}/agents/${agentId}/web-search-preference?preference=${preference}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response
+        .text()
+        .catch(() => 'No error details available');
+      console.error(
+        `Error updating web search preference: ${response.status} ${response.statusText}`,
+        errorText,
+      );
+      throw new Error(
+        `Error updating web search preference: ${response.statusText} (${response.status})`,
+      );
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof NoAccessTokenAvailableError) {
+      throw error;
+    }
+
+    console.error('Failed to update web search preference:', error);
+    handleApiError(error, { operation: 'update web search preference', resource: 'agent settings' });
+    throw error;
+  }
+};

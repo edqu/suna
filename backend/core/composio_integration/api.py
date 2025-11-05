@@ -239,6 +239,21 @@ async def list_toolkits(
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ) -> Dict[str, Any]:
     try:
+        # Check if COMPOSIO_API_KEY is configured
+        composio_api_key = os.getenv("COMPOSIO_API_KEY")
+        if not composio_api_key:
+            logger.warning("COMPOSIO_API_KEY not configured - Composio integrations are not available")
+            return {
+                "success": False,
+                "toolkits": [],
+                "total_items": 0,
+                "total_pages": 0,
+                "current_page": 1,
+                "next_cursor": None,
+                "has_more": False,
+                "error": "COMPOSIO_API_KEY not configured. Add it to your .env file to enable Composio integrations."
+            }
+        
         logger.debug(f"Fetching Composio toolkits with limit: {limit}, cursor: {cursor}, search: {search}, category: {category}")
         
         service = get_integration_service()
@@ -258,6 +273,21 @@ async def list_toolkits(
             "has_more": result.get('next_cursor') is not None
         }
         
+    except ValueError as e:
+        # Likely COMPOSIO_API_KEY not configured
+        if "COMPOSIO_API_KEY" in str(e):
+            logger.warning("COMPOSIO_API_KEY not configured")
+            return {
+                "success": False,
+                "toolkits": [],
+                "total_items": 0,
+                "total_pages": 0,
+                "current_page": 1,
+                "next_cursor": None,
+                "has_more": False,
+                "error": "COMPOSIO_API_KEY not configured. Add it to your .env file to enable Composio integrations."
+            }
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to fetch toolkits: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch toolkits: {str(e)}")

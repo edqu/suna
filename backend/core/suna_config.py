@@ -15,8 +15,9 @@ SUNA_CONFIG = {
         "sb_expose_tool": True,
         "sb_upload_file_tool": True,
         
-        # Search and research tools
-        "web_search_tool": True,
+        # Search and research tools (local/free versions preferred)
+        "local_web_search_tool": True,  # FREE - DuckDuckGo + BeautifulSoup
+        "web_search_tool": False,  # PAID - Tavily + Firecrawl (disabled by default)
         "image_search_tool": True,
         "data_providers_tool": True,
         

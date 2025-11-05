@@ -139,6 +139,7 @@ allow_origin_regex = None
 if config.ENV_MODE == EnvMode.LOCAL:
     allowed_origins.append("http://localhost:3000")
     allowed_origins.append("http://127.0.0.1:3000")
+    logger.info(f"🌐 CORS configured for LOCAL mode with origins: {allowed_origins}")
 
 # Add staging-specific origins
 if config.ENV_MODE == EnvMode.STAGING:
@@ -151,6 +152,10 @@ if config.ENV_MODE == EnvMode.STAGING:
 if config.ENV_MODE == EnvMode.PRODUCTION:
     allowed_origins.append("http://localhost:3000")
     allowed_origins.append("http://127.0.0.1:3000")
+    logger.info(f"🌐 CORS configured for PRODUCTION mode with localhost added")
+
+logger.info(f"🌐 Final CORS allowed_origins: {allowed_origins}")
+logger.info(f"🌐 Current ENV_MODE: {config.ENV_MODE.value}")
 
 app.add_middleware(
     CORSMiddleware,

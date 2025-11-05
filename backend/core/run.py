@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from core.tools.message_tool import MessageTool
 from core.tools.sb_expose_tool import SandboxExposeTool
 from core.tools.web_search_tool import SandboxWebSearchTool
+from core.tools.local_web_search_tool import LocalWebSearchTool
 from core.tools.image_search_tool import SandboxImageSearchTool
 from dotenv import load_dotenv
 from core.utils.config import config, EnvMode
@@ -94,7 +95,9 @@ class ToolManager:
         if self.account_id:
             self._register_suna_specific_tools(disabled_tools)
         
-        logger.info(f"Tool registration complete. Registered {len(self.thread_manager.tool_registry.tools)} functions")
+        registered_tool_names = list(self.thread_manager.tool_registry.tools.keys())
+        logger.info(f"Tool registration complete. Registered {len(registered_tool_names)} functions")
+        logger.info(f"📋 Available tools: {', '.join(sorted(registered_tool_names))}")
     
     def _register_core_tools(self):
         """Register core tools that are always available."""
@@ -104,20 +107,53 @@ class ToolManager:
     
     def _register_sandbox_tools(self, disabled_tools: List[str]):
         """Register sandbox-related tools with granular control."""
-        # Register web search tools conditionally based on API keys
-        if config.TAVILY_API_KEY or config.FIRECRAWL_API_KEY:
-            if 'web_search_tool' not in disabled_tools:
+        # Register web search tools - prefer free local version, fallback to paid APIs
+        # Check agent config for web search preference
+        web_search_preference = "local"  # Default to free local search
+        if self.agent_config:
+            web_search_preference = self.agent_config.get('web_search_preference', 'local')
+        
+        # Register web search (either local or paid, but not both)
+        web_search_registered = False
+        
+        # Try local (free) web search first if preferred
+        if web_search_preference == "local" and 'local_web_search_tool' not in disabled_tools:
+            try:
+                logger.info(f"🔍 Attempting to register LOCAL web search tool...")
+                enabled_methods = self._get_enabled_methods_for_tool('local_web_search_tool')
+                function_names = enabled_methods if enabled_methods else None
+                logger.debug(f"Local web search enabled_methods: {enabled_methods}, function_names: {function_names}")
+                self.thread_manager.add_tool(LocalWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                logger.info(f"✅ Registered LOCAL web search tool (FREE - DuckDuckGo + BeautifulSoup) with {len(function_names) if function_names else 'all'} methods")
+                web_search_registered = True
+            except Exception as e:
+                logger.error(f"❌ Failed to register local web search: {e}", exc_info=True)
+                logger.warning(f"Will try paid APIs as fallback")
+        
+        # Try paid APIs if not registered yet and API keys available
+        if not web_search_registered and 'web_search_tool' not in disabled_tools:
+            if config.TAVILY_API_KEY or config.FIRECRAWL_API_KEY:
+                logger.info(f"🔍 Attempting to register PAID web search tool...")
                 enabled_methods = self._get_enabled_methods_for_tool('web_search_tool')
-                self.thread_manager.add_tool(SandboxWebSearchTool, function_names=enabled_methods, thread_manager=self.thread_manager, project_id=self.project_id)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered web_search_tool with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(SandboxWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                logger.info(f"✅ Registered PAID web search tool (Tavily + Firecrawl)")
+                web_search_registered = True
+            else:
+                logger.warning("⚠️ Web search requested but no API keys configured. Configure TAVILY_API_KEY and FIRECRAWL_API_KEY or enable local_web_search_tool")
+        
+        if not web_search_registered:
+            logger.warning("❌ NO WEB SEARCH TOOL REGISTERED! Both local and paid are disabled or failed. Web search functionality will not be available.")
         
         if config.SERPER_API_KEY:
             if 'image_search_tool' not in disabled_tools:
                 enabled_methods = self._get_enabled_methods_for_tool('image_search_tool')
-                self.thread_manager.add_tool(SandboxImageSearchTool, function_names=enabled_methods, thread_manager=self.thread_manager, project_id=self.project_id)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered image_search_tool with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(SandboxImageSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                if function_names:
+                    logger.debug(f"✅ Registered image_search_tool with methods: {function_names}")
+                else:
+                    logger.debug(f"✅ Registered image_search_tool with all methods")
         
         # Register other sandbox tools
         sandbox_tools = [
@@ -136,44 +172,62 @@ class ToolManager:
         for tool_name, tool_class, kwargs in sandbox_tools:
             if tool_name not in disabled_tools:
                 enabled_methods = self._get_enabled_methods_for_tool(tool_name)
-                self.thread_manager.add_tool(tool_class, function_names=enabled_methods, **kwargs)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered {tool_name} with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(tool_class, function_names=function_names, **kwargs)
+                if function_names:
+                    logger.debug(f"✅ Registered {tool_name} with methods: {function_names}")
+                else:
+                    logger.debug(f"✅ Registered {tool_name} with all methods")
     
     def _register_utility_tools(self, disabled_tools: List[str]):
         """Register utility tools with API key checks."""
         if config.RAPID_API_KEY and 'data_providers_tool' not in disabled_tools:
             enabled_methods = self._get_enabled_methods_for_tool('data_providers_tool')
-            self.thread_manager.add_tool(DataProvidersTool, function_names=enabled_methods)
-            if enabled_methods:
-                logger.debug(f"✅ Registered data_providers_tool with methods: {enabled_methods}")
+            function_names = enabled_methods if enabled_methods else None
+            self.thread_manager.add_tool(DataProvidersTool, function_names=function_names)
+            if function_names:
+                logger.debug(f"✅ Registered data_providers_tool with methods: {function_names}")
+            else:
+                logger.debug(f"✅ Registered data_providers_tool with all methods")
         
         if config.SEMANTIC_SCHOLAR_API_KEY and 'paper_search_tool' not in disabled_tools:
             if 'paper_search_tool' not in disabled_tools:
                 enabled_methods = self._get_enabled_methods_for_tool('paper_search_tool')
-                self.thread_manager.add_tool(PaperSearchTool, function_names=enabled_methods, thread_manager=self.thread_manager)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered paper_search_tool with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(PaperSearchTool, function_names=function_names, thread_manager=self.thread_manager)
+                if function_names:
+                    logger.debug(f"✅ Registered paper_search_tool with methods: {function_names}")
+                else:
+                    logger.debug(f"✅ Registered paper_search_tool with all methods")
         
         # Register search tools if EXA API key is available
         if config.EXA_API_KEY:
             if 'people_search_tool' not in disabled_tools:
                 enabled_methods = self._get_enabled_methods_for_tool('people_search_tool')
-                self.thread_manager.add_tool(PeopleSearchTool, function_names=enabled_methods, thread_manager=self.thread_manager)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered people_search_tool with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(PeopleSearchTool, function_names=function_names, thread_manager=self.thread_manager)
+                if function_names:
+                    logger.debug(f"✅ Registered people_search_tool with methods: {function_names}")
+                else:
+                    logger.debug(f"✅ Registered people_search_tool with all methods")
             
             if 'company_search_tool' not in disabled_tools:
                 enabled_methods = self._get_enabled_methods_for_tool('company_search_tool')
-                self.thread_manager.add_tool(CompanySearchTool, function_names=enabled_methods, thread_manager=self.thread_manager)
-                if enabled_methods:
-                    logger.debug(f"✅ Registered company_search_tool with methods: {enabled_methods}")
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(CompanySearchTool, function_names=function_names, thread_manager=self.thread_manager)
+                if function_names:
+                    logger.debug(f"✅ Registered company_search_tool with methods: {function_names}")
+                else:
+                    logger.debug(f"✅ Registered company_search_tool with all methods")
         
         if config.ENV_MODE != EnvMode.PRODUCTION and config.VAPI_PRIVATE_KEY and 'vapi_voice_tool' not in disabled_tools:
             enabled_methods = self._get_enabled_methods_for_tool('vapi_voice_tool')
-            self.thread_manager.add_tool(VapiVoiceTool, function_names=enabled_methods, thread_manager=self.thread_manager)
-            if enabled_methods:
-                logger.debug(f"✅ Registered vapi_voice_tool with methods: {enabled_methods}")
+            function_names = enabled_methods if enabled_methods else None
+            self.thread_manager.add_tool(VapiVoiceTool, function_names=function_names, thread_manager=self.thread_manager)
+            if function_names:
+                logger.debug(f"✅ Registered vapi_voice_tool with methods: {function_names}")
+            else:
+                logger.debug(f"✅ Registered vapi_voice_tool with all methods")
             
     def _register_agent_builder_tools(self, agent_id: str, disabled_tools: List[str]):
         """Register agent builder tools with proper initialization."""
@@ -196,15 +250,18 @@ class ToolManager:
             if tool_name not in disabled_tools:
                 try:
                     enabled_methods = self._get_enabled_methods_for_tool(tool_name)
+                    function_names = enabled_methods if enabled_methods else None
                     self.thread_manager.add_tool(
                         tool_class, 
-                        function_names=enabled_methods, 
+                        function_names=function_names, 
                         thread_manager=self.thread_manager, 
                         db_connection=db, 
                         agent_id=agent_id
                     )
-                    if enabled_methods:
-                        logger.debug(f"✅ Registered {tool_name} with methods: {enabled_methods}")
+                    if function_names:
+                        logger.debug(f"✅ Registered {tool_name} with methods: {function_names}")
+                    else:
+                        logger.debug(f"✅ Registered {tool_name} with all methods")
                 except Exception as e:
                     logger.warning(f"❌ Failed to register {tool_name}: {e}")
     
@@ -216,15 +273,18 @@ class ToolManager:
             
             db = DBConnection()
             enabled_methods = self._get_enabled_methods_for_tool('agent_creation_tool')
+            function_names = enabled_methods if enabled_methods else None
             self.thread_manager.add_tool(
                 AgentCreationTool, 
-                function_names=enabled_methods, 
+                function_names=function_names, 
                 thread_manager=self.thread_manager, 
                 db_connection=db, 
                 account_id=self.account_id
             )
-            if enabled_methods:
-                logger.debug(f"✅ Registered agent_creation_tool with methods: {enabled_methods}")
+            if function_names:
+                logger.debug(f"✅ Registered agent_creation_tool with methods: {function_names}")
+            else:
+                logger.debug(f"✅ Registered agent_creation_tool with all methods")
     
     def _register_browser_tool(self, disabled_tools: List[str]):
         """Register browser tool with sandbox access."""
@@ -232,15 +292,18 @@ class ToolManager:
             from core.tools.browser_tool import BrowserTool
             
             enabled_methods = self._get_enabled_methods_for_tool('browser_tool')
+            function_names = enabled_methods if enabled_methods else None
             self.thread_manager.add_tool(
                 BrowserTool, 
-                function_names=enabled_methods, 
+                function_names=function_names, 
                 project_id=self.project_id, 
                 thread_id=self.thread_id, 
                 thread_manager=self.thread_manager
             )
-            if enabled_methods:
-                logger.debug(f"✅ Registered browser_tool with methods: {enabled_methods}")
+            if function_names:
+                logger.debug(f"✅ Registered browser_tool with methods: {function_names}")
+            else:
+                logger.debug(f"✅ Registered browser_tool with all methods")
     
     def _get_enabled_methods_for_tool(self, tool_name: str) -> Optional[List[str]]:
         if not self.agent_config or 'agentpress_tools' not in self.agent_config:
@@ -611,12 +674,12 @@ class AgentRunner:
         
         all_tools = [
             'sb_shell_tool', 'sb_files_tool', 'sb_expose_tool',
-            'web_search_tool', 'image_search_tool', 'sb_vision_tool', 'sb_presentation_tool', 'sb_image_edit_tool',
+            'web_search_tool', 'local_web_search_tool', 'image_search_tool', 'sb_vision_tool', 'sb_presentation_tool', 'sb_image_edit_tool',
             'sb_kb_tool', 'sb_design_tool', 'sb_upload_file_tool',
             'sb_docs_tool',
             'data_providers_tool', 'browser_tool', 'people_search_tool', 'company_search_tool', 
             'agent_config_tool', 'mcp_search_tool', 'credential_profile_tool', 'trigger_tool',
-            'agent_creation_tool'
+            'agent_creation_tool', 'paper_search_tool', 'vapi_voice_tool'
         ]
         
         for tool_name in all_tools:

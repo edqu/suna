@@ -411,6 +411,90 @@ async def update_agent_model(
     agent_update = AgentUpdateRequest(model=model_id)
     return await update_agent(agent_id, agent_update, user_id)
 
+@router.patch("/agents/{agent_id}/web-search-preference", summary="Update Web Search Preference", operation_id="update_web_search_preference")
+async def update_web_search_preference(
+    agent_id: str,
+    preference: str,  # "local" or "paid"
+    user_id: str = Depends(verify_and_get_user_id_from_jwt)
+):
+    """
+    Toggle between free local web search (DuckDuckGo) and paid APIs (Tavily/Firecrawl).
+    
+    Args:
+        agent_id: Agent to update
+        preference: "local" for free DuckDuckGo, "paid" for Tavily/Firecrawl
+    """
+    if preference not in ["local", "paid"]:
+        raise HTTPException(status_code=400, detail="Preference must be 'local' or 'paid'")
+    
+    logger.debug(f"Updating web search preference for agent {agent_id} to: {preference}")
+    client = await utils.db.client
+    
+    try:
+        # Get current agent
+        agent_result = await client.table('agents').select('*').eq('agent_id', agent_id).execute()
+        if not agent_result.data:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        agent = agent_result.data[0]
+        if agent['account_id'] != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get current version
+        from core.versioning.version_service import version_service
+        current_version = await version_service.get_current_version(agent_id, client)
+        
+        # Update config with web_search_preference
+        config_update = current_version.get('config', {})
+        config_update['web_search_preference'] = preference
+        
+        # Also update tool configuration based on preference
+        tools_config = config_update.get('tools', {})
+        agentpress_tools = tools_config.get('agentpress', {})
+        
+        if preference == "local":
+            agentpress_tools['local_web_search_tool'] = True
+            agentpress_tools['web_search_tool'] = False
+            logger.info(f"Enabled FREE local web search (DuckDuckGo)")
+        else:
+            agentpress_tools['local_web_search_tool'] = False
+            agentpress_tools['web_search_tool'] = True
+            logger.info(f"Enabled PAID web search (Tavily + Firecrawl)")
+        
+        tools_config['agentpress'] = agentpress_tools
+        config_update['tools'] = tools_config
+        
+        # Create new version with updated config
+        from core.versioning.api import CreateVersionRequest
+        version_request = CreateVersionRequest(
+            agent_id=agent_id,
+            config=config_update,
+            version_name=f"Web search: {preference}",
+            change_summary=f"Changed web search to {preference} mode"
+        )
+        
+        new_version = await version_service.create_version(
+            agent_id=agent_id,
+            config=config_update,
+            version_name=version_request.version_name,
+            change_summary=version_request.change_summary,
+            client=client
+        )
+        
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "web_search_preference": preference,
+            "version_id": new_version.version_id,
+            "message": f"Web search mode changed to {preference}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating web search preference: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.delete("/agents/{agent_id}", summary="Delete Agent", operation_id="delete_agent")
 async def delete_agent(agent_id: str, user_id: str = Depends(verify_and_get_user_id_from_jwt)):
     logger.debug(f"Deleting agent: {agent_id}")

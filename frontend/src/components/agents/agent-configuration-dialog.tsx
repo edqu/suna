@@ -61,6 +61,7 @@ import { AgentTriggersConfiguration } from './triggers/agent-triggers-configurat
 import { AgentAvatar } from '../thread/content/agent-avatar';
 import { AgentIconEditorDialog } from './config/agent-icon-editor-dialog';
 import { AgentVersionSwitcher } from './agent-version-switcher';
+import { WebSearchPreferenceToggle } from './config/web-search-preference-toggle';
 
 interface AgentConfigurationDialogProps {
   open: boolean;
@@ -676,7 +677,7 @@ export function AgentConfigurationDialog({
                 </TabsContent>
 
                 <TabsContent value="tools" className="p-6 mt-0 flex flex-col h-full">
-                  <div className="flex flex-col flex-1 min-h-0 h-full">
+                  <div className="flex flex-col flex-1 min-h-0 h-full gap-4">
                     {isSunaAgent && (
                       <Alert className="mb-4 bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900">
                         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
@@ -685,6 +686,16 @@ export function AgentConfigurationDialog({
                         </AlertDescription>
                       </Alert>
                     )}
+                    
+                    {/* Web Search Preference Toggle */}
+                    <WebSearchPreferenceToggle
+                      agentId={agentId}
+                      currentPreference={formData.web_search_preference || 'local'}
+                      onPreferenceChange={(newPref) => {
+                        setFormData(prev => ({ ...prev, web_search_preference: newPref }));
+                      }}
+                    />
+                    
                     <GranularToolConfiguration
                       tools={formData.agentpress_tools}
                       onToolsChange={handleToolsChange}
