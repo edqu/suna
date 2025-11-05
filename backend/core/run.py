@@ -9,6 +9,7 @@ from core.tools.message_tool import MessageTool
 from core.tools.sb_expose_tool import SandboxExposeTool
 from core.tools.web_search_tool import SandboxWebSearchTool
 from core.tools.local_web_search_tool import LocalWebSearchTool
+from core.tools.local_voice_tool import LocalVoiceTool
 from core.tools.image_search_tool import SandboxImageSearchTool
 from dotenv import load_dotenv
 from core.utils.config import config, EnvMode
@@ -154,6 +155,16 @@ class ToolManager:
                     logger.debug(f"✅ Registered image_search_tool with methods: {function_names}")
                 else:
                     logger.debug(f"✅ Registered image_search_tool with all methods")
+        
+        # Register local voice tool (FREE - Edge TTS + Whisper)
+        if 'local_voice_tool' not in disabled_tools:
+            try:
+                enabled_methods = self._get_enabled_methods_for_tool('local_voice_tool')
+                function_names = enabled_methods if enabled_methods else None
+                self.thread_manager.add_tool(LocalVoiceTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                logger.info(f"✅ Registered LOCAL voice tool (FREE - Edge TTS + Whisper)")
+            except Exception as e:
+                logger.warning(f"Failed to register local voice tool: {e}")
         
         # Register other sandbox tools
         sandbox_tools = [
@@ -674,7 +685,7 @@ class AgentRunner:
         
         all_tools = [
             'sb_shell_tool', 'sb_files_tool', 'sb_expose_tool',
-            'web_search_tool', 'local_web_search_tool', 'image_search_tool', 'sb_vision_tool', 'sb_presentation_tool', 'sb_image_edit_tool',
+            'web_search_tool', 'local_web_search_tool', 'local_voice_tool', 'image_search_tool', 'sb_vision_tool', 'sb_presentation_tool', 'sb_image_edit_tool',
             'sb_kb_tool', 'sb_design_tool', 'sb_upload_file_tool',
             'sb_docs_tool',
             'data_providers_tool', 'browser_tool', 'people_search_tool', 'company_search_tool', 

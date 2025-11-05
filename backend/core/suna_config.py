@@ -18,6 +18,7 @@ SUNA_CONFIG = {
         # Search and research tools (local/free versions preferred)
         "local_web_search_tool": True,  # FREE - DuckDuckGo + BeautifulSoup
         "web_search_tool": False,  # PAID - Tavily + Firecrawl (disabled by default)
+        "local_voice_tool": True,  # FREE - Edge TTS + Whisper
         "image_search_tool": True,
         "data_providers_tool": True,
         

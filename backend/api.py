@@ -203,6 +203,9 @@ api_router.include_router(google_slides_router)
 from core.google.google_docs_api import router as google_docs_router
 api_router.include_router(google_docs_router)
 
+from core import embedding_api
+api_router.include_router(embedding_api.router)
+
 from core.models_api import router as models_router
 api_router.include_router(models_router)
 

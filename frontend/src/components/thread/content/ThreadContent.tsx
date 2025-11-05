@@ -33,6 +33,7 @@ import { ComposioUrlDetector } from './composio-url-detector';
 import { StreamingText } from './StreamingText';
 import { HIDE_STREAMING_XML_TAGS } from '@/components/thread/utils';
 import { useAgentsFromCache } from '@/hooks/react-query/agents/use-agents';
+import { AutoTTSPlayer } from '@/components/voice/auto-tts-player';
 
 // Helper function to render all attachments as standalone messages
 export function renderStandaloneAttachments(
@@ -589,6 +590,27 @@ export const ThreadContent: React.FC<ThreadContentProps> = ({
   const latestMessageRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [shouldJustifyToTop, setShouldJustifyToTop] = useState(false);
+  
+  // Voice output toggle - read from localStorage
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('voiceOutputEnabled') === 'true';
+    }
+    return false;
+  });
+  
+  // Listen for voice output changes
+  useEffect(() => {
+    const handleVoiceChange = () => {
+      if (typeof window !== 'undefined') {
+        setVoiceEnabled(localStorage.getItem('voiceOutputEnabled') === 'true');
+      }
+    };
+    
+    window.addEventListener('voiceOutputChanged', handleVoiceChange);
+    return () => window.removeEventListener('voiceOutputChanged', handleVoiceChange);
+  }, []);
+  
   const { session } = useAuth();
 
   // Collect unique agent IDs from messages to prefetch from cache
@@ -784,6 +806,13 @@ export const ThreadContent: React.FC<ThreadContentProps> = ({
 
   return (
     <>
+      {/* Auto-TTS Player - speaks agent responses automatically */}
+      <AutoTTSPlayer 
+        messages={messages}
+        enabled={voiceEnabled}
+        className="hidden"  // Hidden but active
+      />
+      
       {displayMessages.length === 0 &&
       !streamingTextContent &&
       !streamingToolCall &&
