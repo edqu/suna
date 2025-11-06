@@ -86,32 +86,89 @@ class LocalWebSearchTool(SandboxToolsBase):
             ToolResult with search results
         """
         try:
-            max_results = min(max_results, 10)  # Cap at 10
+            max_results = min(max_results, 30)  # Cap at 10
             
             await self._ensure_sandbox()
             
             # Install required packages in sandbox if not present
-            install_cmd = "pip install -q duckduckgo-search beautifulsoup4 lxml 2>&1 | grep -v 'already satisfied' || true"
+            install_cmd = "pip install -q duckduckgo-search beautifulsoup4 lxml requests 2>&1 | grep -v 'already satisfied' || true"
             await self.sandbox.process.exec(install_cmd, timeout=60)
             
             # Escape single quotes in query for use in Python string
             escaped_query = query.replace("'", "\\'")
             
-            # Create Python script to perform search
+            # Create Python script to perform search with retry and fallback logic
             search_script = f"""
 import json
-from duckduckgo_search import DDGS
+import sys
+import time
+import requests
+from urllib.parse import quote_plus
+
+def ddg_html_search(query, max_results):
+    '''Fallback: Direct HTML parsing of DuckDuckGo'''
+    try:
+        from bs4 import BeautifulSoup
+        
+        url = f"https://html.duckduckgo.com/html/?q={{quote_plus(query)}}"
+        headers = {{
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }}
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = []
+        
+        for result_div in soup.find_all('div', class_='result')[:max_results]:
+            title_elem = result_div.find('a', class_='result__a')
+            snippet_elem = result_div.find('a', class_='result__snippet')
+            
+            if title_elem:
+                title = title_elem.get_text(strip=True)
+                url = title_elem.get('href', '')
+                snippet = snippet_elem.get_text(strip=True) if snippet_elem else ''
+                
+                results.append({{
+                    'title': title,
+                    'href': url,
+                    'body': snippet
+                }})
+        
+        return results, None
+    except Exception as e:
+        return None, f"HTML fallback failed: {{str(e)}}"
+
+def search_with_retry(query, region, max_results):
+    '''Try duckduckgo-search library first, fallback to HTML parsing'''
+    
+    # Method 1: Try duckduckgo-search library
+    try:
+        from duckduckgo_search import DDGS
+        
+        with DDGS(timeout=20) as ddgs:
+            results = list(ddgs.text(query, region=region, max_results=max_results))
+            if results:
+                return results, None
+    except Exception as e:
+        error_msg = str(e)
+        # Only log, don't fail yet - we'll try fallback
+        pass
+    
+    # Method 2: Fallback to HTML parsing
+    return ddg_html_search(query, max_results)
 
 try:
-    with DDGS() as ddgs:
-        results = list(ddgs.text(
-            '{escaped_query}',
-            region='{region}',
-            max_results={max_results}
-        ))
-        print(json.dumps(results))
+    results, error = search_with_retry('{escaped_query}', '{region}', {max_results})
+    if error:
+        sys.stdout.write(json.dumps({{"error": error}}))
+    else:
+        sys.stdout.write(json.dumps(results))
+    sys.stdout.flush()
 except Exception as e:
-    print(json.dumps({{"error": str(e)}}))
+    sys.stdout.write(json.dumps({{"error": str(e)}}))
+    sys.stdout.flush()
 """
             
             # Write script to file
@@ -123,6 +180,10 @@ except Exception as e:
             logger.info(f"Searching DuckDuckGo for: '{query}' (max_results={max_results})")
             response = await self.sandbox.process.exec(f"python {script_path}", timeout=self.timeout)
             
+            # Log raw response for debugging
+            raw_output = str(response.result)[:500] if response.result else 'EMPTY'
+            logger.debug(f"Search raw response (exit_code={response.exit_code}): {raw_output}")
+            
             if response.exit_code != 0:
                 error_msg = f"Search failed: {response.result}"
                 logger.error(error_msg)
@@ -130,7 +191,27 @@ except Exception as e:
             
             # Parse results
             try:
-                results = json.loads(response.result)
+                # Strip any non-JSON output (installation messages, warnings, etc.)
+                output = str(response.result).strip() if response.result else ""
+                
+                if not output:
+                    logger.error("Search returned empty output")
+                    return self.fail_response("Search returned no results (empty output)")
+                
+                # Find the first JSON array or object
+                json_start = -1
+                for char in ['{', '[']:
+                    pos = output.find(char)
+                    if pos != -1 and (json_start == -1 or pos < json_start):
+                        json_start = pos
+                
+                if json_start == -1:
+                    logger.error(f"No JSON found in output: {output[:200]}")
+                    return self.fail_response(f"No valid JSON in search output: {output[:200]}")
+                
+                output = output[json_start:]
+                
+                results = json.loads(output)
                 
                 if "error" in results:
                     return self.fail_response(f"DuckDuckGo search error: {results['error']}")

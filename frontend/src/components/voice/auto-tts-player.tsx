@@ -106,7 +106,7 @@ export const AutoTTSPlayer: React.FC<AutoTTSPlayerProps> = ({
       if (textToSpeak && textToSpeak.trim().length > 0) {
         // Limit length to avoid very long speeches
         if (textToSpeak.length > 1000) {
-        //  textToSpeak = textToSpeak.substring(0, 1000) + '... (message truncated for voice)';
+          textToSpeak = textToSpeak.substring(0, 1000) + '... (message truncated for voice)';
         }
 
         speak(textToSpeak);
