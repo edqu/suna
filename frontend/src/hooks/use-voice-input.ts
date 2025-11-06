@@ -84,15 +84,10 @@ export const useVoiceInput = (
     }
 
     return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {
-          // Recognition may have already stopped
-        }
+      if (recognitionRef.current && isRecording) {
+        recognitionRef.current.stop();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startRecording = useCallback(() => {

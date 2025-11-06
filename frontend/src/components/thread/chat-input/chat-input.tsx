@@ -39,11 +39,11 @@ import {
   MessageSquare,
   CornerDownLeft,
   Plug,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { VoiceRecorder } from './voice-recorder';
-import { EnhancedVoiceRecorder } from '@/components/voice';
-import { VoiceSettings } from '@/components/voice/voice-settings';
-import { Volume2, VolumeX } from 'lucide-react';
+import { EnhancedVoiceRecorder, VoiceSettings, AutoTTSPlayer } from '@/components/voice';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -255,6 +255,12 @@ export const ChatInput = memo(
       >('adaptive');
       // Voice recorder feature flag - use enhanced free browser-based voice or backend transcription
       const USE_ENHANCED_VOICE = true; // Set to true for free Web Speech API, false for backend transcription
+      
+      // Voice output state
+      const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(
+        typeof window !== 'undefined' && 
+        localStorage.getItem('voiceOutputEnabled') === 'true'
+      );
 
       const {
         selectedModel,
@@ -978,51 +984,38 @@ export const ChatInput = memo(
 
               {isLoggedIn && (
                 <>
-                  {/* Voice Settings Dropdown */}
-                  <VoiceSettings compact className="hidden sm:block" />
-                  
                   {/* Voice Output Toggle */}
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          onClick={async () => {
-                            const currentValue = typeof window !== 'undefined' && localStorage.getItem('voiceOutputEnabled') === 'true';
-                            const newValue = !currentValue;
-                            
-                            if (typeof window !== 'undefined') {
-                              localStorage.setItem('voiceOutputEnabled', String(newValue));
-                              
-                              // Activate TTS on first enable (required by browser)
-                              if (newValue && 'speechSynthesis' in window) {
-                                // Speak silent utterance to activate
-                                const silentUtterance = new SpeechSynthesisUtterance('');
-                                silentUtterance.volume = 0;
-                                window.speechSynthesis.speak(silentUtterance);
-                                localStorage.setItem('ttsActivated', 'true');
-                              }
-                              
-                              window.dispatchEvent(new Event('voiceOutputChanged'));
-                            }
-                            
-                            const { toast } = await import('sonner');
-                            toast.success(newValue ? 'Voice output enabled' : 'Voice output disabled', {
-                              description: newValue ? 'Agent responses will be spoken aloud' : 'Voice output turned off'
-                            });
-                          }}
+                          type="button"
                           variant="ghost"
-                          size="icon"
-                          className={(typeof window !== 'undefined' && localStorage.getItem('voiceOutputEnabled') === 'true') ? 'text-primary' : 'text-muted-foreground'}
+                          size="sm"
+                          onClick={() => {
+                            const newValue = !voiceOutputEnabled;
+                            setVoiceOutputEnabled(newValue);
+                            localStorage.setItem('voiceOutputEnabled', String(newValue));
+                            window.dispatchEvent(new CustomEvent('voiceOutputChanged', { 
+                              detail: { enabled: newValue } 
+                            }));
+                          }}
+                          className={cn(
+                            'h-8 w-8 p-0 bg-transparent border-0 rounded-xl transition-all duration-200',
+                            voiceOutputEnabled 
+                              ? 'text-primary hover:text-primary/80' 
+                              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                          )}
                         >
-                          {(typeof window !== 'undefined' && localStorage.getItem('voiceOutputEnabled') === 'true') ? (
+                          {voiceOutputEnabled ? (
                             <Volume2 className="h-5 w-5" />
                           ) : (
                             <VolumeX className="h-5 w-5" />
                           )}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{(typeof window !== 'undefined' && localStorage.getItem('voiceOutputEnabled') === 'true') ? 'Disable' : 'Enable'} voice output</p>
+                      <TooltipContent side="top">
+                        <p>{voiceOutputEnabled ? 'Voice output enabled' : 'Voice output disabled'}</p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Agent responses will be spoken aloud
                         </p>
@@ -1030,7 +1023,10 @@ export const ChatInput = memo(
                     </Tooltip>
                   </TooltipProvider>
 
-                  {/* Voice Input */}
+                  {/* Voice Settings (voice selection) */}
+                  <VoiceSettings compact={true} />
+
+                  {/* Voice Input Recorder */}
                   {USE_ENHANCED_VOICE ? (
                     <EnhancedVoiceRecorder
                       onTranscription={handleTranscription}

@@ -139,7 +139,10 @@ allow_origin_regex = None
 if config.ENV_MODE == EnvMode.LOCAL:
     allowed_origins.append("http://localhost:3000")
     allowed_origins.append("http://127.0.0.1:3000")
+    # Allow all origins on local network in LOCAL mode (including backend on 8000)
+    allow_origin_regex = r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+)(:\d+)?"
     logger.info(f"🌐 CORS configured for LOCAL mode with origins: {allowed_origins}")
+    logger.info(f"🌐 CORS regex pattern: {allow_origin_regex}")
 
 # Add staging-specific origins
 if config.ENV_MODE == EnvMode.STAGING:
