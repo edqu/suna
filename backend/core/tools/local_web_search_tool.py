@@ -41,7 +41,7 @@ class LocalWebSearchTool(SandboxToolsBase):
         self.timeout = 30
 
     @method_metadata(
-        display_name="Search Web (Free)",
+        display_name="Search Web",
         description="Search the web using DuckDuckGo - completely free, no API key required",
         is_core=False,
         visible=True
@@ -49,7 +49,7 @@ class LocalWebSearchTool(SandboxToolsBase):
     @openapi_schema({
         "type": "function",
         "function": {
-            "name": "search_web_free",
+            "name": "web_search",
             "description": "Search the web using DuckDuckGo. Returns search results with titles, URLs, and snippets. Completely free with no API key required.",
             "parameters": {
                 "type": "object",
@@ -65,22 +65,22 @@ class LocalWebSearchTool(SandboxToolsBase):
                     },
                     "region": {
                         "type": "string",
-                        "description": "Region code for localized results (e.g., 'us-en', 'uk-en', 'de-de'). Default: 'wt-wt' (worldwide)",
-                        "default": "wt-wt"
+                        "description": "Region code for localized results (e.g., 'us-en', 'uk-en', 'de-de'). Default: 'us-en'",
+                        "default": "us-en"
                     }
                 },
                 "required": ["query"]
             }
         }
     })
-    async def search_web_free(self, query: str, max_results: int = 5, region: str = "wt-wt") -> ToolResult:
+    async def web_search(self, query: str, max_results: int = 5, region: str = "us-en") -> ToolResult:
         """
         Search the web using DuckDuckGo - completely free.
         
         Args:
             query: Search query
             max_results: Number of results to return (max 10)
-            region: Region code for results
+            region: Region code for results (default: 'us-en')
             
         Returns:
             ToolResult with search results
@@ -90,28 +90,64 @@ class LocalWebSearchTool(SandboxToolsBase):
             
             await self._ensure_sandbox()
             
-            # Install required packages in sandbox if not present
-            install_cmd = "pip install -q duckduckgo-search beautifulsoup4 lxml 2>&1 | grep -v 'already satisfied' || true"
-            await self.sandbox.process.exec(install_cmd, timeout=60)
+            # Test basic sandbox connectivity first
+            test_result = await self.sandbox.process.exec("python -c \"print('SANDBOX_OK')\"", timeout=5)
+            logger.info(f"Sandbox test result: exit_code={test_result.exit_code}, output={test_result.result}")
             
-            # Escape single quotes in query for use in Python string
-            escaped_query = query.replace("'", "\\'")
+            if test_result.exit_code != 0 or "SANDBOX_OK" not in str(test_result.result or ""):
+                return self.fail_response(f"Sandbox is not responding properly. Test output: {test_result.result}")
             
-            # Create Python script to perform search
+            # Install required packages with pinned version using same Python interpreter
+            install_cmd = 'python -m pip install -q --disable-pip-version-check "duckduckgo-search>=6.2.3,<7" beautifulsoup4 lxml requests'
+            install_result = await self.sandbox.process.exec(install_cmd, timeout=60)
+            logger.info(f"Package installation exit code: {install_result.exit_code}")
+            
+            # Safely embed query and region using JSON
+            keywords_json = json.dumps(query)
+            region_json = json.dumps(region)
+            
+            # Create robust Python script with error handling and multiple backends
             search_script = f"""
-import json
-from duckduckgo_search import DDGS
+import json, sys, traceback
 
 try:
-    with DDGS() as ddgs:
-        results = list(ddgs.text(
-            '{escaped_query}',
-            region='{region}',
-            max_results={max_results}
-        ))
-        print(json.dumps(results))
+    from duckduckgo_search import DDGS
 except Exception as e:
-    print(json.dumps({{"error": str(e)}}))
+    print('BEGIN_JSON')
+    print(json.dumps({{"success": False, "error": f"import_failed: {{str(e)}}"}}))
+    print('END_JSON')
+    sys.exit(0)
+
+try:
+    keywords = {keywords_json}
+    region = {region_json}
+    max_results = {max_results}
+    
+    # Try multiple backends for reliability
+    results = []
+    with DDGS() as ddgs:
+        for backend in ("api", "lite", "html"):
+            try:
+                results = list(ddgs.text(
+                    keywords, 
+                    region=region, 
+                    max_results=max_results,
+                    safesearch="moderate",
+                    backend=backend
+                ))
+                if results:
+                    break
+            except Exception as backend_err:
+                continue
+    
+    print('BEGIN_JSON')
+    print(json.dumps({{"success": True, "results": results}}))
+    print('END_JSON')
+    
+except Exception as e:
+    print('BEGIN_JSON')
+    print(json.dumps({{"success": False, "error": f"search_failed: {{str(e)}}\\n{{traceback.format_exc()}}"}}))
+    print('END_JSON')
 """
             
             # Write script to file
@@ -119,29 +155,57 @@ except Exception as e:
             write_cmd = f"cat > {script_path} << 'EOFSCRIPT'\n{search_script}\nEOFSCRIPT"
             await self.sandbox.process.exec(write_cmd, timeout=10)
             
-            # Execute search
-            logger.info(f"Searching DuckDuckGo for: '{query}' (max_results={max_results})")
-            response = await self.sandbox.process.exec(f"python {script_path}", timeout=self.timeout)
+            # Execute search with stderr capture and unbuffered output
+            logger.info(f"Searching DuckDuckGo for: '{query}' (max_results={max_results}, region={region})")
+            response = await self.sandbox.process.exec(f"python -u {script_path} 2>&1", timeout=self.timeout)
             
-            if response.exit_code != 0:
-                error_msg = f"Search failed: {response.result}"
-                logger.error(error_msg)
-                return self.fail_response(error_msg)
+            # Log execution details
+            logger.info(f"Search script exit code: {response.exit_code}")
+            logger.debug(f"Search script raw output length: {len(str(response.result or ''))}")
             
-            # Parse results
+            # Parse results from bounded JSON markers
             try:
-                results = json.loads(response.result)
+                raw_output = str(response.result or "").strip()
+                logger.debug(f"Raw search output: {raw_output[:500]}")
                 
-                if "error" in results:
-                    return self.fail_response(f"DuckDuckGo search error: {results['error']}")
+                # Extract JSON between markers
+                if "BEGIN_JSON" in raw_output and "END_JSON" in raw_output:
+                    json_parts = raw_output.split("BEGIN_JSON")
+                    if len(json_parts) > 1:
+                        json_content = json_parts[-1].split("END_JSON")[0].strip()
+                    else:
+                        json_content = ""
+                else:
+                    # No markers found - fallback to raw output
+                    json_content = raw_output
                 
-                # Format results
+                if not json_content:
+                    error_msg = f"Search returned empty response.\nExit code: {response.exit_code}\nRaw output: {raw_output[:2000] if raw_output else '(completely empty)'}"
+                    logger.error(error_msg)
+                    return self.fail_response(error_msg)
+                
+                result_data = json.loads(json_content)
+                
+                # Check if search was successful
+                if not result_data.get("success", False):
+                    error = result_data.get("error", "Unknown error")
+                    logger.error(f"DuckDuckGo search failed: {error}")
+                    return self.fail_response(f"DuckDuckGo search error: {error}")
+                
+                results = result_data.get("results", [])
+                
+                # Handle case where no results found
+                if not results:
+                    logger.warning(f"No results found for query: '{query}'")
+                    return self.fail_response(f"No results found for '{query}'. Try a different search query.")
+                
+                # Format results - handle multiple result formats from different backends
                 formatted_results = []
                 for idx, result in enumerate(results, 1):
                     formatted_results.append({
-                        "title": result.get("title", "No title"),
-                        "url": result.get("href", result.get("link", "")),
-                        "snippet": result.get("body", result.get("description", "")),
+                        "title": result.get("title") or result.get("t") or "No title",
+                        "url": result.get("href") or result.get("link") or result.get("u") or "",
+                        "snippet": result.get("body") or result.get("a") or result.get("description") or "",
                         "position": idx
                     })
                 
@@ -165,7 +229,7 @@ except Exception as e:
                 )
                 
             except json.JSONDecodeError as e:
-                error_msg = f"Failed to parse search results: {str(e)}"
+                error_msg = f"Failed to parse search results: {str(e)}\nRaw output: {raw_output[:1000]}"
                 logger.error(error_msg)
                 return self.fail_response(error_msg)
                 
@@ -175,7 +239,7 @@ except Exception as e:
             return self.fail_response(error_msg)
 
     @method_metadata(
-        display_name="Scrape Web Page (Free)",
+        display_name="Scrape Web Page",
         description="Scrape and extract clean content from any web page - completely free",
         is_core=False,
         visible=True
@@ -183,7 +247,7 @@ except Exception as e:
     @openapi_schema({
         "type": "function",
         "function": {
-            "name": "scrape_webpage_free",
+            "name": "scrape_webpage",
             "description": "Scrape content from a URL and extract clean, readable text. Uses BeautifulSoup and Readability for content extraction. Completely free with no API key required.",
             "parameters": {
                 "type": "object",
@@ -207,7 +271,7 @@ except Exception as e:
             }
         }
     })
-    async def scrape_webpage_free(self, url: str, extract_markdown: bool = True, include_links: bool = True) -> ToolResult:
+    async def scrape_webpage(self, url: str, extract_markdown: bool = True, include_links: bool = True) -> ToolResult:
         """
         Scrape content from a webpage - completely free.
         
@@ -394,7 +458,7 @@ except Exception as e:
             
             # First, perform search
             logger.info(f"Search and scrape: '{query}' (will scrape top {num_results_to_scrape})")
-            search_result = await self.search_web_free(query, max_results=num_results_to_scrape)
+            search_result = await self.web_search(query, max_results=num_results_to_scrape)
             
             if not search_result.success:
                 return search_result
@@ -410,7 +474,7 @@ except Exception as e:
             scraped_pages = []
             for idx, url in enumerate(urls_to_scrape, 1):
                 logger.info(f"Scraping {idx}/{len(urls_to_scrape)}: {url}")
-                scrape_result = await self.scrape_webpage_free(url, extract_markdown=True, include_links=False)
+                scrape_result = await self.scrape_webpage(url, extract_markdown=True, include_links=False)
                 
                 if scrape_result.success:
                     scraped_pages.append({

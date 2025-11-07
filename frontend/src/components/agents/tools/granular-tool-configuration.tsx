@@ -197,7 +197,8 @@ export const GranularToolConfiguration = ({
   };
 
   const getEnabledToolsCount = (): number => {
-    return Object.entries(tools).filter(([toolName, toolConfig]) => {
+    // Only count tools that are in TOOL_GROUPS and enabled
+    return Object.keys(TOOL_GROUPS).filter(toolName => {
       return isToolGroupEnabled(toolName);
     }).length;
   };

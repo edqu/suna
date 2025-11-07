@@ -414,7 +414,7 @@ async def update_agent_model(
 @router.patch("/agents/{agent_id}/web-search-preference", summary="Update Web Search Preference", operation_id="update_web_search_preference")
 async def update_web_search_preference(
     agent_id: str,
-    preference: str,  # "local" or "paid"
+    preference: str = Query(..., description="Web search preference: 'local' or 'paid'"),
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ):
     """

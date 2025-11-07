@@ -108,43 +108,53 @@ class ToolManager:
     
     def _register_sandbox_tools(self, disabled_tools: List[str]):
         """Register sandbox-related tools with granular control."""
-        # Register web search tools - prefer free local version, fallback to paid APIs
+        # Register web search tools based on agent preference
         # Check agent config for web search preference
         web_search_preference = "local"  # Default to free local search
         if self.agent_config:
             web_search_preference = self.agent_config.get('web_search_preference', 'local')
         
+        logger.info(f"🔍 Web search preference: {web_search_preference}")
+        
         # Register web search (either local or paid, but not both)
         web_search_registered = False
         
-        # Try local (free) web search first if preferred
-        if web_search_preference == "local" and 'local_web_search_tool' not in disabled_tools:
-            try:
-                logger.info(f"🔍 Attempting to register LOCAL web search tool...")
-                enabled_methods = self._get_enabled_methods_for_tool('local_web_search_tool')
-                function_names = enabled_methods if enabled_methods else None
-                logger.debug(f"Local web search enabled_methods: {enabled_methods}, function_names: {function_names}")
-                self.thread_manager.add_tool(LocalWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
-                logger.info(f"✅ Registered LOCAL web search tool (FREE - DuckDuckGo + BeautifulSoup) with {len(function_names) if function_names else 'all'} methods")
-                web_search_registered = True
-            except Exception as e:
-                logger.error(f"❌ Failed to register local web search: {e}", exc_info=True)
-                logger.warning(f"Will try paid APIs as fallback")
-        
-        # Try paid APIs if not registered yet and API keys available
-        if not web_search_registered and 'web_search_tool' not in disabled_tools:
-            if config.TAVILY_API_KEY or config.FIRECRAWL_API_KEY:
-                logger.info(f"🔍 Attempting to register PAID web search tool...")
-                enabled_methods = self._get_enabled_methods_for_tool('web_search_tool')
-                function_names = enabled_methods if enabled_methods else None
-                self.thread_manager.add_tool(SandboxWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
-                logger.info(f"✅ Registered PAID web search tool (Tavily + Firecrawl)")
-                web_search_registered = True
+        if web_search_preference == "local":
+            # Register local (free) web search
+            if 'local_web_search_tool' not in disabled_tools:
+                try:
+                    logger.info(f"🔍 Registering LOCAL web search tool (DuckDuckGo + BeautifulSoup)...")
+                    enabled_methods = self._get_enabled_methods_for_tool('local_web_search_tool')
+                    function_names = enabled_methods if enabled_methods else None
+                    logger.debug(f"Local web search enabled_methods: {enabled_methods}, function_names: {function_names}")
+                    self.thread_manager.add_tool(LocalWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                    logger.info(f"✅ Registered LOCAL web search tool (FREE) with {len(function_names) if function_names else 'all'} methods")
+                    web_search_registered = True
+                except Exception as e:
+                    logger.error(f"❌ Failed to register local web search: {e}", exc_info=True)
             else:
-                logger.warning("⚠️ Web search requested but no API keys configured. Configure TAVILY_API_KEY and FIRECRAWL_API_KEY or enable local_web_search_tool")
+                logger.warning("⚠️ Local web search is disabled in disabled_tools")
+                
+        elif web_search_preference == "paid":
+            # Register paid APIs (Tavily + Firecrawl)
+            if 'web_search_tool' not in disabled_tools:
+                if config.TAVILY_API_KEY or config.FIRECRAWL_API_KEY:
+                    try:
+                        logger.info(f"🔍 Registering PAID web search tool (Tavily + Firecrawl)...")
+                        enabled_methods = self._get_enabled_methods_for_tool('web_search_tool')
+                        function_names = enabled_methods if enabled_methods else None
+                        self.thread_manager.add_tool(SandboxWebSearchTool, function_names=function_names, thread_manager=self.thread_manager, project_id=self.project_id)
+                        logger.info(f"✅ Registered PAID web search tool with {len(function_names) if function_names else 'all'} methods")
+                        web_search_registered = True
+                    except Exception as e:
+                        logger.error(f"❌ Failed to register paid web search: {e}", exc_info=True)
+                else:
+                    logger.warning("⚠️ Paid web search selected but no API keys configured. Configure TAVILY_API_KEY and/or FIRECRAWL_API_KEY")
+            else:
+                logger.warning("⚠️ Paid web search is disabled in disabled_tools")
         
         if not web_search_registered:
-            logger.warning("❌ NO WEB SEARCH TOOL REGISTERED! Both local and paid are disabled or failed. Web search functionality will not be available.")
+            logger.warning("❌ NO WEB SEARCH TOOL REGISTERED! Web search functionality will not be available.")
         
         if config.SERPER_API_KEY:
             if 'image_search_tool' not in disabled_tools:

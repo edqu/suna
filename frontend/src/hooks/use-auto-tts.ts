@@ -129,11 +129,9 @@ export const useAutoTTS = (options: AutoTTSOptions) => {
     };
 
     utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
-      // Suppress "not-allowed" errors after activation attempt
+      // Suppress "not-allowed" errors completely (browser autoplay policy)
       if (event.error !== 'not-allowed') {
         console.error('TTS error:', event.error);
-      } else if (!isActivated) {
-        console.log('TTS activation needed - will activate on user interaction');
       }
       setIsSpeaking(false);
     };
