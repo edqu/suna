@@ -427,30 +427,21 @@ async def update_web_search_preference(
     if preference not in ["local", "paid"]:
         raise HTTPException(status_code=400, detail="Preference must be 'local' or 'paid'")
     
-    logger.debug(f"Updating web search preference for agent {agent_id} to: {preference}")
-    client = await utils.db.client
+    logger.info(f"Updating web search preference for agent {agent_id} to: {preference}")
     
     try:
-        # Get current agent
-        agent_result = await client.table('agents').select('*').eq('agent_id', agent_id).execute()
-        if not agent_result.data:
-            raise HTTPException(status_code=404, detail="Agent not found")
+        # Get version service
+        from core.versioning.version_service import get_version_service
+        version_service = await get_version_service()
         
-        agent = agent_result.data[0]
-        if agent['account_id'] != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        # Get current active version
+        current_version = await version_service.get_active_version(agent_id, user_id)
         
-        # Get current version
-        from core.versioning.version_service import version_service
-        current_version = await version_service.get_current_version(agent_id, client)
+        if not current_version:
+            raise HTTPException(status_code=404, detail="No active version found for agent")
         
-        # Update config with web_search_preference
-        config_update = current_version.get('config', {})
-        config_update['web_search_preference'] = preference
-        
-        # Also update tool configuration based on preference
-        tools_config = config_update.get('tools', {})
-        agentpress_tools = tools_config.get('agentpress', {})
+        # Build updated agentpress_tools from current version
+        agentpress_tools = dict(current_version.agentpress_tools or {})
         
         if preference == "local":
             agentpress_tools['local_web_search_tool'] = True
@@ -461,30 +452,24 @@ async def update_web_search_preference(
             agentpress_tools['web_search_tool'] = True
             logger.info(f"Enabled PAID web search (Tavily + Firecrawl)")
         
-        tools_config['agentpress'] = agentpress_tools
-        config_update['tools'] = tools_config
-        
-        # Create new version with updated config
-        from core.versioning.api import CreateVersionRequest
-        version_request = CreateVersionRequest(
-            agent_id=agent_id,
-            config=config_update,
-            version_name=f"Web search: {preference}",
-            change_summary=f"Changed web search to {preference} mode"
-        )
-        
+        # Create new version with updated tools
         new_version = await version_service.create_version(
             agent_id=agent_id,
-            config=config_update,
-            version_name=version_request.version_name,
-            change_summary=version_request.change_summary,
-            client=client
+            user_id=user_id,
+            system_prompt=current_version.system_prompt,
+            configured_mcps=current_version.configured_mcps or [],
+            custom_mcps=current_version.custom_mcps or [],
+            agentpress_tools=agentpress_tools,
+            model=current_version.model,
+            version_name=f"Web search: {preference}",
+            change_description=f"Changed web search to {preference} mode"
         )
         
         return {
             "success": True,
             "agent_id": agent_id,
-            "web_search_preference": preference,
+            "preference": preference,
+            "web_search_preference": preference,  # For backward compatibility
             "version_id": new_version.version_id,
             "message": f"Web search mode changed to {preference}"
         }

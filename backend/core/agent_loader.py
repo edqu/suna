@@ -41,6 +41,7 @@ class AgentData:
     custom_mcps: Optional[list] = None
     agentpress_tools: Optional[Dict[str, Any]] = None
     triggers: Optional[list] = None
+    web_search_preference: Optional[str] = "local"  # Default to free local search
     
     # Version info
     version_name: Optional[str] = None
@@ -97,7 +98,8 @@ class AgentData:
             current_version_id=self.current_version_id,
             version_count=self.version_count,
             current_version=current_version,
-            metadata=self.metadata
+            metadata=self.metadata,
+            web_search_preference=self.web_search_preference
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -390,6 +392,7 @@ class AgentLoader:
                 agent.agentpress_tools = _extract_agentpress_tools_for_run(tools.get('agentpress', {}))
                 
                 agent.triggers = config.get('triggers', [])
+                agent.web_search_preference = config.get('web_search_preference', 'local')
             else:
                 # Old format compatibility
                 agent.system_prompt = version_dict.get('system_prompt', '')

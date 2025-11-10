@@ -1,0 +1,7 @@
+# Free web search dependencies
+duckduckgo-search>=6.2.3,<7
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+readability-lxml>=0.8.1
+html2text>=2020.1.16

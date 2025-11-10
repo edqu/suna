@@ -86,6 +86,7 @@ class AgentResponse(BaseModel):
     current_version: Optional[AgentVersionResponse] = None
     metadata: Optional[Dict[str, Any]] = None
     account_id: Optional[str] = None  # Internal field, may not always be needed in response
+    web_search_preference: Optional[str] = "local"  # "local" for free DuckDuckGo, "paid" for Tavily/Firecrawl
 
 
 class AgentsResponse(BaseModel):

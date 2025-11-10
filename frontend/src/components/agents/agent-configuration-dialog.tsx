@@ -128,6 +128,7 @@ export function AgentConfigurationDialog({
     icon_name: null as string | null,
     icon_color: '#000000',
     icon_background: '#e5e5e5',
+    web_search_preference: 'local' as 'local' | 'paid',
   });
 
 
@@ -159,6 +160,7 @@ export function AgentConfigurationDialog({
       icon_name: configSource.icon_name || null,
       icon_color: configSource.icon_color || '#000000',
       icon_background: configSource.icon_background || '#e5e5e5',
+      web_search_preference: (configSource.web_search_preference as 'local' | 'paid') || 'local',
     };
 
     setFormData(newFormData);
