@@ -452,9 +452,25 @@ class ResponseProcessor:
                             # --- Buffer and Execute Complete Native Tool Calls ---
                             if not hasattr(tool_call_chunk, 'function'): continue
                             idx = tool_call_chunk.index if hasattr(tool_call_chunk, 'index') else 0
-                            # ... (buffer update logic remains same) ...
-                            # ... (check complete logic remains same) ...
-                            has_complete_tool_call = False # Placeholder
+                            
+                            # Update buffer with incoming chunks
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    'id': tool_call_chunk.id if hasattr(tool_call_chunk, 'id') else None,
+                                    'function': {'name': '', 'arguments': ''}
+                                }
+                            
+                            if hasattr(tool_call_chunk, 'id') and tool_call_chunk.id:
+                                tool_calls_buffer[idx]['id'] = tool_call_chunk.id
+                            
+                            if hasattr(tool_call_chunk.function, 'name') and tool_call_chunk.function.name:
+                                tool_calls_buffer[idx]['function']['name'] = tool_call_chunk.function.name
+                            
+                            if hasattr(tool_call_chunk.function, 'arguments') and tool_call_chunk.function.arguments:
+                                tool_calls_buffer[idx]['function']['arguments'] += tool_call_chunk.function.arguments
+                            
+                            # Check if we have a complete tool call
+                            has_complete_tool_call = False
                             if (tool_calls_buffer.get(idx) and
                                 tool_calls_buffer[idx]['id'] and
                                 tool_calls_buffer[idx]['function']['name'] and

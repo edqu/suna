@@ -56,6 +56,11 @@ class ModelConfig:
     # === Bedrock-Specific Configuration ===
     performanceConfig: Optional[Dict[str, str]] = None  # e.g., {"latency": "optimized"}
     
+    # === Ollama GPU Configuration ===
+    num_gpu: Optional[int] = None  # Number of GPUs to use (1 = use GPU)
+    num_ctx: Optional[int] = None  # Context window size
+    num_thread: Optional[int] = None  # Number of CPU threads
+    
 
 
 @dataclass
@@ -118,7 +123,7 @@ class Model:
             # Provider & API configuration parameters
             api_params = [
                 'api_base', 'api_version', 'base_url', 'deployment_id', 
-                'timeout', 'num_retries'
+                'timeout', 'num_retries', 'num_gpu', 'num_ctx', 'num_thread'
             ]
             
             # Apply configured parameters

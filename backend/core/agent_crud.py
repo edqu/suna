@@ -430,6 +430,13 @@ async def update_web_search_preference(
     logger.info(f"Updating web search preference for agent {agent_id} to: {preference}")
     
     try:
+        # Validate API keys if switching to paid mode
+        if preference == "paid" and not (config.TAVILY_API_KEY or config.FIRECRAWL_API_KEY):
+            raise HTTPException(
+                status_code=400, 
+                detail="Paid web search requires TAVILY_API_KEY or FIRECRAWL_API_KEY. Configure keys in backend environment settings."
+            )
+        
         # Get version service
         from core.versioning.version_service import get_version_service
         version_service = await get_version_service()

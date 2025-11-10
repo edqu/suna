@@ -547,6 +547,8 @@ class ModelRegistry:
             enabled=is_local,
             config=ModelConfig(
                 api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+                num_gpu=1,  # Enable GPU acceleration
+                num_thread=8  # Optimize CPU threads
             )
         ))
         
@@ -569,6 +571,8 @@ class ModelRegistry:
             enabled=is_local,
             config=ModelConfig(
                 api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+                num_gpu=1,  # Enable GPU acceleration
+                num_thread=8  # Optimize CPU threads
             )
         ))
         
@@ -591,6 +595,8 @@ class ModelRegistry:
             enabled=is_local,
             config=ModelConfig(
                 api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+                num_gpu=1,  # Enable GPU acceleration
+                num_thread=8  # Optimize CPU threads
             )
         ))
         
@@ -613,6 +619,8 @@ class ModelRegistry:
             enabled=is_local,
             config=ModelConfig(
                 api_base=getattr(config, 'OLLAMA_API_BASE', 'http://localhost:11434') if config else 'http://localhost:11434',
+                num_gpu=1,  # Enable GPU acceleration
+                num_thread=8  # Optimize CPU threads
             )
         ))
         

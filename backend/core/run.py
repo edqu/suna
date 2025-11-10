@@ -108,11 +108,22 @@ class ToolManager:
     
     def _register_sandbox_tools(self, disabled_tools: List[str]):
         """Register sandbox-related tools with granular control."""
-        # Register web search tools based on agent preference
-        # Check agent config for web search preference
+        # Register web search tools based on agentpress_tools flags
         web_search_preference = "local"  # Default to free local search
+        agentpress_tools = {}
+        
         if self.agent_config:
-            web_search_preference = self.agent_config.get('web_search_preference', 'local')
+            agentpress_tools = self.agent_config.get('agentpress_tools', {})
+            
+            # Determine preference from tool flags (primary source of truth)
+            if agentpress_tools.get('web_search_tool', False):
+                web_search_preference = "paid"
+            elif agentpress_tools.get('local_web_search_tool', False):
+                web_search_preference = "local"
+            elif self.agent_config.get('web_search_preference'):
+                # Fallback for backward compatibility
+                web_search_preference = self.agent_config.get('web_search_preference', 'local')
+                logger.debug("Using web_search_preference from config (legacy)")
         
         logger.info(f"🔍 Web search preference: {web_search_preference}")
         
@@ -769,6 +780,32 @@ class AgentRunner:
             # Don't set max_tokens by default - let LiteLLM and providers handle their own defaults
             max_tokens = None
             logger.debug(f"max_tokens: {max_tokens} (using provider defaults)")
+            
+            # Determine tool calling format based on model capabilities
+            model_supports_native = False
+            model_provider = None
+            try:
+                model_obj = model_manager.get_model(self.config.model_name)
+                if model_obj:
+                    model_supports_native = model_obj.supports_functions
+                    model_provider = model_obj.provider.value if model_obj.provider else "unknown"
+                    logger.info(f"🤖 Model: {self.config.model_name} (provider: {model_provider}, supports_functions: {model_supports_native})")
+            except Exception as e:
+                logger.warning(f"Could not determine model capabilities, defaulting to XML: {e}")
+            
+            # Configure tool calling based on model support
+            # Native only: Models that support OpenAI function calling (Gemini, GPT, Claude)
+            # XML only: Models without native support
+            # NEVER use both simultaneously - causes conflicts
+            if model_supports_native:
+                use_native = True
+                use_xml = False
+                logger.info(f"✅ Using NATIVE tool calling (OpenAI format) for {model_provider}")
+            else:
+                use_native = False
+                use_xml = True
+                logger.info(f"✅ Using XML tool calling (fallback) for {model_provider}")
+            
             generation = self.config.trace.generation(name="thread_manager.run_thread") if self.config.trace else None
             try:
                 logger.debug(f"Starting thread execution for {self.config.thread_id}")
@@ -784,8 +821,8 @@ class AgentRunner:
                     temporary_message=temporary_message,
                     latest_user_message_content=latest_user_message_content,
                     processor_config=ProcessorConfig(
-                        xml_tool_calling=True,
-                        native_tool_calling=False,
+                        xml_tool_calling=use_xml,
+                        native_tool_calling=use_native,
                         execute_tools=True,
                         execute_on_stream=True,
                         tool_execution_strategy="parallel",

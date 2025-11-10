@@ -5,10 +5,10 @@ from core.agentpress.tool import Tool, ToolResult, openapi_schema, tool_metadata
 from core.utils.config import config
 from core.sandbox.tool_base import SandboxToolsBase
 from core.agentpress.thread_manager import ThreadManager
+from core.utils.logger import logger
 import json
 import datetime
 import asyncio
-import logging
 
 # TODO: add subpages, etc... in filters as sometimes its necessary 
 
@@ -93,7 +93,7 @@ class SandboxWebSearchTool(SandboxToolsBase):
                 num_results = 20
 
             # Execute the search with Tavily
-            logging.info(f"Executing web search for query: '{query}' with {num_results} results")
+            logger.info(f"Executing web search for query: '{query}' with {num_results} results")
             search_response = await self.tavily_client.search(
                 query=query,
                 max_results=num_results,

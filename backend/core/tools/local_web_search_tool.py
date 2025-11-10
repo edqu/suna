@@ -13,6 +13,9 @@ from core.agentpress.tool import Tool, ToolResult, openapi_schema, tool_metadata
 from core.agentpress.thread_manager import ThreadManager
 from core.utils.logger import logger
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlparse, urljoin
+import ipaddress
+import socket
 import json
 import asyncio
 
@@ -42,6 +45,61 @@ class LocalWebSearchTool(Tool):
         self.thread_manager = thread_manager
         self.max_results = 10
         self.timeout = 30
+    
+    def _is_safe_public_url(self, url: str) -> tuple[bool, str]:
+        """
+        Validate URL is safe to fetch (SSRF protection).
+        
+        Returns:
+            (is_safe, error_message) tuple
+        """
+        try:
+            parsed = urlparse(url)
+            
+            # Only allow HTTP/HTTPS
+            if parsed.scheme not in ("http", "https"):
+                return False, f"Only HTTP/HTTPS URLs allowed, got: {parsed.scheme}"
+            
+            host = parsed.hostname
+            if not host:
+                return False, "Invalid URL: no hostname"
+            
+            # Block localhost variations
+            if host.lower() in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+                return False, "Localhost access not allowed"
+            
+            # Resolve hostname to IP addresses
+            try:
+                infos = socket.getaddrinfo(host, None)
+            except socket.gaierror:
+                return False, f"Could not resolve hostname: {host}"
+            
+            for family, _, _, _, sockaddr in infos:
+                ip_str = sockaddr[0]
+                try:
+                    ip = ipaddress.ip_address(ip_str)
+                    
+                    # Block private, loopback, link-local, multicast ranges
+                    if ip.is_private:
+                        return False, f"Private IP address not allowed: {ip}"
+                    if ip.is_loopback:
+                        return False, f"Loopback address not allowed: {ip}"
+                    if ip.is_link_local:
+                        return False, f"Link-local address not allowed: {ip}"
+                    if ip.is_multicast:
+                        return False, f"Multicast address not allowed: {ip}"
+                    
+                    # Block AWS metadata endpoint
+                    if ip_str == '169.254.169.254':
+                        return False, "Access to metadata endpoint not allowed"
+                        
+                except ValueError:
+                    return False, f"Invalid IP address: {ip_str}"
+            
+            return True, ""
+            
+        except Exception as e:
+            return False, f"URL validation error: {str(e)}"
 
     @method_metadata(
         display_name="Search Web",
@@ -99,21 +157,26 @@ class LocalWebSearchTool(Tool):
             except ImportError:
                 return self.fail_response("DuckDuckGo search library not installed. Install with: pip install duckduckgo-search")
             
-            # Try multiple backends for reliability
+            # Try multiple backends for reliability (run in thread to avoid blocking event loop)
             results = []
             last_error = None
             
             for backend in ("api", "lite", "html"):
                 try:
                     logger.debug(f"Trying DuckDuckGo backend: {backend}")
-                    with DDGS() as ddgs:
-                        results = list(ddgs.text(
-                            query, 
-                            region=region, 
-                            max_results=max_results,
-                            safesearch="moderate",
-                            backend=backend
-                        ))
+                    
+                    # Run blocking search in thread pool
+                    def _do_search():
+                        with DDGS() as ddgs:
+                            return list(ddgs.text(
+                                query, 
+                                region=region, 
+                                max_results=max_results,
+                                safesearch="moderate",
+                                backend=backend
+                            ))
+                    
+                    results = await asyncio.to_thread(_do_search)
                     
                     if results:
                         logger.info(f"Successfully got {len(results)} results using backend: {backend}")
@@ -213,21 +276,33 @@ class LocalWebSearchTool(Tool):
         try:
             logger.info(f"Scraping URL: {url}")
             
+            # Validate URL for SSRF protection
+            is_safe, error_msg = self._is_safe_public_url(url)
+            if not is_safe:
+                logger.warning(f"SSRF protection blocked URL: {url} - {error_msg}")
+                return self.fail_response(f"URL not allowed: {error_msg}")
+            
             # Import libraries
             try:
                 import requests
                 from bs4 import BeautifulSoup
                 from readability import Document
                 import html2text
-                from urllib.parse import urljoin
             except ImportError as e:
                 return self.fail_response(f"Required library not installed: {e}. Install with: pip install requests beautifulsoup4 lxml readability-lxml html2text")
             
-            # Fetch the page
+            # Fetch the page (async-safe, no redirects for security)
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
-            response = requests.get(url, headers=headers, timeout=30)
+            
+            response = await asyncio.to_thread(
+                requests.get, 
+                url, 
+                headers=headers, 
+                timeout=15, 
+                allow_redirects=False
+            )
             response.raise_for_status()
             
             # Extract main content using Readability
