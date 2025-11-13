@@ -138,9 +138,70 @@ class BrowserTool(SandboxToolsBase):
         except Exception as e:
             return f"Error getting debug info: {e}"
 
+    def _get_stagehand_base_url(self) -> str:
+        """Get the Stagehand API base URL from config."""
+        # Check if using external Stagehand server (on host machine)
+        base_url = getattr(config, 'STAGEHAND_BASE_URL', None)
+        if base_url:
+            return base_url.rstrip('/')
+        # Default: Stagehand running in Docker sandbox
+        return 'http://localhost:8004/api'
+    
+    def _is_external_mode(self) -> bool:
+        """Check if using external Stagehand server (not managed by sandbox)."""
+        mode = getattr(config, 'STAGEHAND_MODE', 'managed')
+        return mode == 'external'
+
     async def _check_stagehand_api_health(self) -> bool:
         """Check if the Stagehand API server is running and accessible"""
         try:
+            base_url = self._get_stagehand_base_url()
+            is_external = self._is_external_mode()
+            
+            if is_external:
+                # External mode: Just check if server is reachable
+                # Don't try to initialize it
+                logger.info(f"🔗 Using external Stagehand server at {base_url}")
+                
+                # For external mode, use Python requests instead of sandbox curl
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(f"{base_url.replace('/api', '')}/api", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                if data.get('status') in ['healthy', 'not_initialized']:
+                                    logger.info(f"✅ External Stagehand server is reachable")
+                                    # If not initialized, try to initialize it
+                                    if data.get('status') == 'not_initialized':
+                                        logger.info("Initializing external Stagehand server...")
+                                        
+                                        # Prepare init payload with optional vision model
+                                        init_payload = {"api_key": config.GEMINI_API_KEY}
+                                        if hasattr(config, 'BROWSER_VISION_MODEL') and config.BROWSER_VISION_MODEL:
+                                            init_payload["model_name"] = config.BROWSER_VISION_MODEL
+                                            logger.info(f"Using vision model: {config.BROWSER_VISION_MODEL}")
+                                        
+                                        async with session.post(
+                                            f"{base_url.replace('/api', '')}/api/init",
+                                            json=init_payload,
+                                            timeout=aiohttp.ClientTimeout(total=90)
+                                        ) as init_response:
+                                            if init_response.status == 200:
+                                                init_data = await init_response.json()
+                                                if init_data.get('status') == 'healthy':
+                                                    logger.info("✅ External Stagehand initialized successfully")
+                                                    return True
+                                    else:
+                                        return True
+                            return False
+                    except aiohttp.ClientError as e:
+                        logger.error(f"❌ Cannot reach external Stagehand server: {e}")
+                        logger.error(f"Make sure the browser server is running on Windows!")
+                        logger.error(f"Start it with: cd browser-server && npm start")
+                        return False
+            
+            # Managed mode: Stagehand runs in sandbox
             await self._ensure_sandbox()
             
             # Retry logic: The browser API server takes a few seconds to start
@@ -150,7 +211,7 @@ class BrowserTool(SandboxToolsBase):
             
             for attempt in range(max_retries):
                 # Simple health check curl command
-                curl_cmd = "curl -s -X GET 'http://localhost:8004/api' -H 'Content-Type: application/json'"
+                curl_cmd = f"curl -s -X GET '{base_url.replace('/api', '')}/api' -H 'Content-Type: application/json'"
                 
                 if attempt > 0:
                     logger.info(f"Retrying Stagehand API health check (attempt {attempt + 1}/{max_retries})...")
@@ -166,11 +227,21 @@ class BrowserTool(SandboxToolsBase):
                         else:
                             # If the browser api is not healthy, we need to initialize it
                             logger.info("Stagehand API server responded but browser not initialized. Initializing...")
-                            # Pass API key securely as environment variable instead of command line argument
+                            
+                            # Prepare init payload with vision model preference
+                            init_data = {"api_key": config.GEMINI_API_KEY}
+                            if hasattr(config, 'BROWSER_VISION_MODEL') and config.BROWSER_VISION_MODEL:
+                                init_data["model_name"] = config.BROWSER_VISION_MODEL
+                                logger.info(f"Using vision model: {config.BROWSER_VISION_MODEL}")
+                            
+                            # Pass API key securely as environment variable
                             env_vars = {"GEMINI_API_KEY": config.GEMINI_API_KEY}
-
+                            
+                            # Build curl command with model_name if specified
+                            curl_payload = json.dumps(init_data).replace('"', '\\"')
+                            
                             response = await self.sandbox.process.exec(
-                                'curl -s -X POST "http://localhost:8004/api/init" -H "Content-Type: application/json" -d "{\\"api_key\\": \\"$GEMINI_API_KEY\\"}"',
+                                f'curl -s -X POST "http://localhost:8004/api/init" -H "Content-Type: application/json" -d "{curl_payload}"',
                                 timeout=90,
                                 env=env_vars
                             )
@@ -214,39 +285,82 @@ class BrowserTool(SandboxToolsBase):
             if not config.GEMINI_API_KEY:
                 return self.fail_response("Browser tool is not available. GEMINI_API_KEY is not configured.")
             
-            # Ensure sandbox is initialized
-            await self._ensure_sandbox()
+            base_url = self._get_stagehand_base_url()
+            is_external = self._is_external_mode()
+            
+            if not is_external:
+                # Managed mode: Ensure sandbox is initialized
+                await self._ensure_sandbox()
             
             # Check if Stagehand API server is running
             stagehand_healthy = await self._check_stagehand_api_health()
             
             if not stagehand_healthy:
-                error_msg = "Stagehand API server is not running. Please ensure the Stagehand API server is running. Error: {response}"
-                
-                # Add debug information
-                debug_info = await self._debug_sandbox_services()
-                error_msg += f"\n\nDebug information:\n{debug_info}"
+                if is_external:
+                    error_msg = f"External Stagehand server is not reachable at {base_url}\n\n"
+                    error_msg += "Make sure the browser server is running on Windows:\n"
+                    error_msg += "  1. cd browser-server\n"
+                    error_msg += "  2. npm install (first time only)\n"
+                    error_msg += "  3. npm start\n\n"
+                    error_msg += "The browser should open visibly on your Windows desktop!"
+                else:
+                    error_msg = "Stagehand API server is not running in sandbox."
+                    # Add debug information for managed mode
+                    debug_info = await self._debug_sandbox_services()
+                    error_msg += f"\n\nDebug information:\n{debug_info}"
                 
                 logger.error(error_msg)
                 return self.fail_response(error_msg)
             
+            # Build the URL for API call
+            url = f"{base_url}/{endpoint}" if not base_url.endswith('/api') else f"{base_url.replace('/api', '')}/api/{endpoint}"
             
-            # Build the curl command to call the local Stagehand API
-            url = f"http://localhost:8004/api/{endpoint}"  # Fixed localhost as curl runs inside container
-            
-            if method == "GET" and params:
-                query_params = "&".join([f"{k}={v}" for k, v in params.items()])
-                url = f"{url}?{query_params}"
-                curl_cmd = f"curl -s -X {method} '{url}' -H 'Content-Type: application/json'"
+            # External mode: Use aiohttp directly from backend
+            # Managed mode: Use curl in sandbox
+            if is_external:
+                import aiohttp
+                
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        if method == "GET":
+                            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as http_response:
+                                response_text = await http_response.text()
+                                response_data = {
+                                    'exit_code': 0 if http_response.status == 200 else 1,
+                                    'result': response_text
+                                }
+                        else:
+                            async with session.post(url, json=params, timeout=aiohttp.ClientTimeout(total=30)) as http_response:
+                                response_text = await http_response.text()
+                                response_data = {
+                                    'exit_code': 0 if http_response.status == 200 else 1,
+                                    'result': response_text
+                                }
+                        
+                        # Convert to sandbox-like response format
+                        class FakeResponse:
+                            def __init__(self, data):
+                                self.exit_code = data['exit_code']
+                                self.result = data['result']
+                        
+                        response = FakeResponse(response_data)
+                        
+                    except aiohttp.ClientError as e:
+                        logger.error(f"External Stagehand API request failed: {e}")
+                        return self.fail_response(f"Failed to communicate with external browser server: {e}")
             else:
-                curl_cmd = f"curl -s -X {method} '{url}' -H 'Content-Type: application/json'"
-                if params:
-                    json_data = json.dumps(params)
-                    curl_cmd += f" -d '{json_data}'"
-            
-            # logger.debug(f"\033[95mExecuting curl command:\033[0m\n{curl_cmd}")
-            
-            response = await self.sandbox.process.exec(curl_cmd, timeout=30)  # Execute curl inside sandbox
+                # Managed mode: Use curl in sandbox
+                if method == "GET" and params:
+                    query_params = "&".join([f"{k}={v}" for k, v in params.items()])
+                    url = f"{url}?{query_params}"
+                    curl_cmd = f"curl -s -X {method} '{url}' -H 'Content-Type: application/json'"
+                else:
+                    curl_cmd = f"curl -s -X {method} '{url}' -H 'Content-Type: application/json'"
+                    if params:
+                        json_data = json.dumps(params)
+                        curl_cmd += f" -d '{json_data}'"
+                
+                response = await self.sandbox.process.exec(curl_cmd, timeout=30)
             
             if response.exit_code == 0:
                 try:

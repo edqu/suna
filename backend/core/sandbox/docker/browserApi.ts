@@ -35,7 +35,7 @@ class BrowserAutomation {
 
     }
 
-    async init(apiKey: string): Promise<{status: string, message: string}> {
+    async init(apiKey: string, modelName?: string): Promise<{status: string, message: string}> {
         try{
             if (!this.browserInitialized) {
                 // Clean up any existing browser before initializing new one
@@ -44,7 +44,28 @@ class BrowserAutomation {
                     await this.shutdown();
                 }
                 
-                console.log("Initializing browser with api key");
+                // Determine which model to use (prefer Ollama, fallback to Gemini)
+                const visionModel = modelName || process.env.BROWSER_VISION_MODEL || "google/gemini-2.5-pro";
+                const isOllamaModel = visionModel.startsWith('ollama/');
+                
+                console.log(`Initializing browser with vision model: ${visionModel}`);
+                
+                const modelConfig: any = {
+                    modelName: visionModel
+                };
+                
+                // Only add API key for non-Ollama models
+                if (!isOllamaModel && apiKey) {
+                    modelConfig.modelClientOptions = { apiKey };
+                } else if (isOllamaModel) {
+                    // For Ollama models, configure base URL
+                    const ollamaBase = process.env.OLLAMA_API_BASE || 'http://localhost:11434';
+                    modelConfig.modelClientOptions = { 
+                        baseURL: ollamaBase 
+                    };
+                    console.log(`Using Ollama vision model at ${ollamaBase}`);
+                }
+                
                 this.stagehand = new Stagehand({
                     env: "LOCAL",
                     enableCaching: true,
@@ -52,10 +73,7 @@ class BrowserAutomation {
                     logger: (logLine: LogLine) => {
                         console.log(`[${logLine.category}] ${logLine.message}`);
                     },
-                    modelName: "google/gemini-2.5-pro",
-                    modelClientOptions: {
-                        apiKey
-                    },
+                    ...modelConfig,
                     localBrowserLaunchOptions: {
                         headless: false,
                         viewport: {

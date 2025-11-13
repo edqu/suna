@@ -20,6 +20,7 @@ from core.agentpress.tool import ToolResult
 from core.agentpress.tool_registry import ToolRegistry
 from core.agentpress.xml_tool_parser import XMLToolParser
 from core.agentpress.error_processor import ErrorProcessor
+from core.agentpress.tool_adapter import get_tool_adapter, NormalizedToolCall
 from langfuse.client import StatefulTraceClient
 from core.services.langfuse import langfuse
 from core.utils.json_helpers import (
@@ -108,6 +109,9 @@ class ResponseProcessor:
         self.is_agent_builder = False  # Deprecated - keeping for compatibility
         self.target_agent_id = None  # Deprecated - keeping for compatibility
         self.agent_config = agent_config
+        
+        # Initialize the universal tool adapter
+        self.tool_adapter = get_tool_adapter()
 
     async def _yield_message(self, message_obj: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Helper to yield a message with proper formatting.

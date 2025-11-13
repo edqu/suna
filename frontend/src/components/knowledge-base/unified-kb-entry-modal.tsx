@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -87,6 +87,17 @@ export function UnifiedKbEntryModal({
     
     // Validation for filename
     const filenameValidation = useNameValidation(filename, 'file');
+
+    // Auto-select first folder when modal opens if no folder is selected
+    useEffect(() => {
+        if (isOpen && !selectedFolder && folders.length > 0) {
+            const firstFolderId = folders[0].folder_id;
+            if (firstFolderId) {
+                setSelectedFolder(firstFolderId);
+                console.debug('Auto-selected first folder:', folders[0].name, firstFolderId);
+            }
+        }
+    }, [isOpen, selectedFolder, folders]);
 
     const handleFolderCreation = async () => {
         if (!folderValidation.isValid) {
@@ -494,13 +505,17 @@ export function UnifiedKbEntryModal({
                                         <div className="flex gap-2">
                                             <select 
                                                 value={selectedFolder}
-                                                onChange={(e) => setSelectedFolder(e.target.value)}
+                                                onChange={(e) => {
+                                                    const newValue = e.target.value;
+                                                    console.debug('Folder selected:', newValue);
+                                                    setSelectedFolder(newValue);
+                                                }}
                                                 className="flex-1 h-10 px-3 py-2 text-sm border border-input bg-background rounded-md"
                                                 disabled={folders.length === 0}
                                             >
-                                                <option value="">
-                                                    {folders.length === 0 ? 'No folders available' : 'Choose a folder...'}
-                                                </option>
+                                                {folders.length === 0 && (
+                                                    <option value="">No folders available</option>
+                                                )}
                                                 {folders.map((folder) => (
                                                     <option key={folder.folder_id} value={folder.folder_id}>
                                                         {folder.name} ({folder.entry_count} files)
@@ -757,6 +772,7 @@ export function UnifiedKbEntryModal({
                                     onClick={handleFileUpload}
                                     disabled={!selectedFolder || selectedFiles.length === 0 || isUploading}
                                     className="gap-2"
+                                    title={!selectedFolder ? 'Please select a folder' : selectedFiles.length === 0 ? 'Please select files to upload' : ''}
                                 >
                                     {isUploading ? (
                                         <>

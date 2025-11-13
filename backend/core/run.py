@@ -46,6 +46,8 @@ from core.tools.company_search_tool import CompanySearchTool
 from core.tools.paper_search_tool import PaperSearchTool
 from core.ai_models.manager import model_manager
 from core.tools.vapi_voice_tool import VapiVoiceTool
+from core.agentpress.tool_adapter import get_tool_adapter, AdapterConfig
+from core.tools.duckduckgo_browser_search import DuckDuckGoBrowserSearch
 
 load_dotenv()
 
@@ -336,6 +338,22 @@ class ToolManager:
                 logger.debug(f"✅ Registered browser_tool with methods: {function_names}")
             else:
                 logger.debug(f"✅ Registered browser_tool with all methods")
+        
+        # Register DuckDuckGo browser search (uses browser to search via duckduckgo.com)
+        if 'duckduckgo_browser_search' not in disabled_tools:
+            enabled_methods = self._get_enabled_methods_for_tool('duckduckgo_browser_search')
+            function_names = enabled_methods if enabled_methods else None
+            self.thread_manager.add_tool(
+                DuckDuckGoBrowserSearch,
+                function_names=function_names,
+                project_id=self.project_id,
+                thread_id=self.thread_id,
+                thread_manager=self.thread_manager
+            )
+            if function_names:
+                logger.debug(f"✅ Registered duckduckgo_browser_search with methods: {function_names}")
+            else:
+                logger.info(f"✅ Registered DuckDuckGo browser search (searches via duckduckgo.com in browser)")
     
     def _get_enabled_methods_for_tool(self, tool_name: str) -> Optional[List[str]]:
         if not self.agent_config or 'agentpress_tools' not in self.agent_config:
@@ -453,6 +471,40 @@ class PromptManager:
                 # Append the full agent builder prompt to the existing system prompt
                 builder_prompt = get_agent_builder_prompt()
                 system_content += f"\n\n{builder_prompt}"
+        
+        # Add browser preference guidance if enabled
+        from core.utils.config import config as app_config
+        if getattr(app_config, 'BROWSER_DEFAULT_FOR_WEB_SEARCH', False):
+            browser_guidance = """
+
+=== WEB BROWSING STRATEGY ===
+
+For web research, browsing, or accessing web content, use this priority order:
+
+1. PRIMARY: Browser-based search (search_duckduckgo_browser, search_and_open_result)
+   - Searches by navigating to DuckDuckGo.com in actual browser
+   - Visual search results with screenshots
+   - Can click into results and read full content
+   - Best for: Researching topics, getting current information
+   - Example: search_duckduckgo_browser(query="Qwen AI features")
+
+2. SECONDARY: Direct browser navigation (browser_navigate_to, browser_extract_content, browser_act)
+   - Use when you know the exact URL
+   - Best for: Specific sites, known URLs, interactive tasks
+   - Example: browser_navigate_to(url="https://github.com/trending")
+
+3. FALLBACK: API-based search (web_search, scrape_webpage_free)
+   - Use if: Browser tools unavailable or fail
+   - Fastest option but no JavaScript support
+   - Best for: Quick lookups, static content
+   - Example: Use if browser initialization fails
+
+Always prefer browser-based tools for web research to get visual confirmation and screenshots.
+
+=== END WEB BROWSING STRATEGY ===
+"""
+            system_content += browser_guidance
+            logger.info("🌐 Browser-first mode enabled: Browser tools preferred over API search")
         
         # Add agent knowledge base context if available
         if agent_config and client and 'agent_id' in agent_config:
@@ -781,7 +833,9 @@ class AgentRunner:
             max_tokens = None
             logger.debug(f"max_tokens: {max_tokens} (using provider defaults)")
             
-            # Determine tool calling format based on model capabilities
+            # Universal Tool Call Adapter - supports ALL models and formats
+            # This adapter enables BOTH native and XML tool calling simultaneously,
+            # allowing the system to work with any model regardless of format preference
             model_supports_native = False
             model_provider = None
             try:
@@ -791,20 +845,43 @@ class AgentRunner:
                     model_provider = model_obj.provider.value if model_obj.provider else "unknown"
                     logger.info(f"🤖 Model: {self.config.model_name} (provider: {model_provider}, supports_functions: {model_supports_native})")
             except Exception as e:
-                logger.warning(f"Could not determine model capabilities, defaulting to XML: {e}")
+                logger.warning(f"Could not determine model capabilities: {e}")
             
-            # Configure tool calling based on model support
-            # Native only: Models that support OpenAI function calling (Gemini, GPT, Claude)
-            # XML only: Models without native support
-            # NEVER use both simultaneously - causes conflicts
-            if model_supports_native:
-                use_native = True
-                use_xml = False
-                logger.info(f"✅ Using NATIVE tool calling (OpenAI format) for {model_provider}")
-            else:
-                use_native = False
-                use_xml = True
-                logger.info(f"✅ Using XML tool calling (fallback) for {model_provider}")
+            # SPECIAL HANDLING: Force XML for Ollama models
+            # Ollama models (including Qwen) work better with XML tool calling
+            # Native function calling support in Ollama is inconsistent
+            if model_provider == "ollama":
+                logger.info(f"🔧 Detected Ollama model - forcing XML tool calling for better compatibility")
+                model_supports_native = False
+            
+            # Initialize the universal adapter for this iteration
+            adapter_config = AdapterConfig(
+                enable_native=True,
+                enable_xml=True,
+                prefer_native=model_supports_native,
+                auto_detect=True,
+                strict_mode=False
+            )
+            tool_adapter = get_tool_adapter(adapter_config)
+            
+            # Universal Adapter Strategy:
+            # - Enable BOTH formats simultaneously for maximum compatibility
+            # - Native format preferred for models that support it (cleaner, faster)
+            # - XML format as universal fallback (works with all models)
+            # - Response processor will handle whichever format the model uses
+            # - Tool execution works identically for both formats
+            # - Adapter normalizes all tool calls to a unified format internally
+            use_native = model_supports_native   # Enable native only if model truly supports it
+            use_xml = True                        # Always enable XML (universal fallback)
+            
+            # SPECIAL HANDLING: Ollama doesn't support tool_choice parameter
+            # Using tool_choice with Ollama can cause silent failures or ignored tools
+            tool_choice_param = "auto" if model_provider != "ollama" else None
+            
+            logger.info(f"🔧 Universal Tool Adapter: native={use_native}, xml={use_xml} (model preference: {'native' if model_supports_native else 'xml'})")
+            logger.info(f"🔧 Adapter config: auto_detect={adapter_config.auto_detect}, strict_mode={adapter_config.strict_mode}")
+            if model_provider == "ollama":
+                logger.info(f"🔧 Ollama detected: tool_choice disabled, XML mode enforced")
             
             generation = self.config.trace.generation(name="thread_manager.run_thread") if self.config.trace else None
             try:
@@ -816,7 +893,7 @@ class AgentRunner:
                     llm_model=self.config.model_name,
                     llm_temperature=0,
                     llm_max_tokens=max_tokens,
-                    tool_choice="auto",
+                    tool_choice=tool_choice_param,
                     max_xml_tool_calls=1,
                     temporary_message=temporary_message,
                     latest_user_message_content=latest_user_message_content,

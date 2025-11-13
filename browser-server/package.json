@@ -1,0 +1,26 @@
+{
+  "name": "suna-browser-server",
+  "version": "1.0.0",
+  "description": "Stagehand browser server for visible browser on Windows host",
+  "main": "stagehand-server.js",
+  "scripts": {
+    "start": "node stagehand-server.js",
+    "dev": "nodemon stagehand-server.js"
+  },
+  "keywords": [
+    "browser",
+    "automation",
+    "stagehand",
+    "playwright"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@browserbasehq/stagehand": "^1.9.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

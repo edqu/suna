@@ -311,6 +311,25 @@ class Configuration:
     # Ollama configuration (local LLM deployment)
     OLLAMA_API_BASE: Optional[str] = "http://localhost:11434"
     
+    # Stagehand Browser Server configuration
+    # Set to 'external' to use browser server running on Windows host (visible browser)
+    # Set to 'managed' to use browser inside Docker sandbox (headless)
+    STAGEHAND_MODE: Optional[str] = "managed"  # Options: 'managed' | 'external'
+    # Base URL for external Stagehand server (only used if STAGEHAND_MODE=external)
+    STAGEHAND_BASE_URL: Optional[str] = None  # e.g., "http://host.docker.internal:8004/api"
+    
+    # Browser Vision Model (for browser automation with vision)
+    # Ollama models: "ollama/qwen2-vl", "ollama/qwen3-vl", "ollama/llava"
+    # Cloud models: "google/gemini-2.5-pro", "anthropic/claude-3-5-sonnet-20241022"
+    # Set to Ollama model to use FREE local vision, or cloud model for better accuracy
+    # If not set or Ollama fails, falls back to Gemini (requires GEMINI_API_KEY)
+    BROWSER_VISION_MODEL: Optional[str] = None  # e.g., "ollama/qwen2-vl"
+    
+    # Browser vs API Search Preference
+    # Set to True to prefer browser tools over API-based web search (with fallback)
+    # Set to False to prefer API-based search (DuckDuckGo)
+    BROWSER_DEFAULT_FOR_WEB_SEARCH: Optional[bool] = False
+    
     # Frontend URL configuration
     FRONTEND_URL_ENV: Optional[str] = None
     
